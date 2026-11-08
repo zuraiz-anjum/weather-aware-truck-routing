@@ -1,0 +1,16 @@
+# Render's free plan sleeps a service after fifteen idle minutes. A health
+# check every ten keeps the hosted demo answering at once. Set the APP_URL
+# repository variable to the service's address to turn this on.
+name: keep-warm
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    if: vars.APP_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - run: curl -fsS --max-time 60 "${{ vars.APP_URL }}/api/health/"

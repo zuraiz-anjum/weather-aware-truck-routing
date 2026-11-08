@@ -1,0 +1,16 @@
+# One web service built from the Dockerfile. Render's free plan puts a service
+# to sleep after fifteen idle minutes and wakes it on the next request, which
+# takes most of a minute; .github/workflows/keep-warm.yml pings it instead.
+services:
+  - type: web
+    name: weather-aware-truck-routing
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health/
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_ALLOWED_HOSTS
+        value: "*"
+      - key: NUM_PROXIES
+        value: "1"
