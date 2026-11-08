@@ -5,9 +5,10 @@ from rest_framework import serializers
 from .checkpoints import INTERVALS
 
 # A dispatcher plans the week ahead; further out the forecast is weather
-# lore, and Open-Meteo stops at sixteen days anyway.
+# lore. Open-Meteo stops at sixteen days, counting today, and the trip and
+# the two days of slider after the departure have to fit inside that.
 EARLIEST_BEHIND = timedelta(hours=1)
-LATEST_AHEAD = timedelta(days=14)
+LATEST_AHEAD = timedelta(days=13)
 
 MAX_LOAD_LB = 200_000
 

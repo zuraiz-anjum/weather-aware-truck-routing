@@ -31,18 +31,20 @@ WANTED = 3
 # to the map, can tell the difference.
 SHAPE_TOLERANCE_MILES = 0.02
 
-# Where the side points go: a fifth of the way across, within reason, at the
-# middle first and then a third of the way from either end.
-DETOUR_FRACTION = 0.2
+# Where the side points go, as (how far along the straight line, how far off
+# it as a fraction of its length): the middle first, then a third of the way
+# from either end, then the middle again but further out. The offset is kept
+# within reason for very short and very long trips.
+DETOUR_ROUNDS = (((0.5, 0.2),), ((0.33, 0.2), (0.67, 0.2)), ((0.5, 0.35),))
 DETOUR_MIN_MILES = 8.0
 DETOUR_MAX_MILES = 150.0
-DETOUR_ROUNDS = ((0.5,), (0.33, 0.67))
 
 # A candidate is a route of its own when less than this much of it runs
 # within a mile of a route already in hand, and it is no slower than this
-# many times the quickest.
+# many times the quickest: a safer road half as long again is still an
+# option a dispatcher would want to see.
 MOSTLY_SHARED = 0.85
-SLOWER_AT_MOST = 1.4
+SLOWER_AT_MOST = 1.5
 SAMPLE_MILES = 2.0
 
 
@@ -76,20 +78,22 @@ def find(origin, destination):
         offered = pool.submit(alternatives, origin, destination)
         # The first pair of side points is asked for alongside the main
         # request rather than after it, since most trips turn out to need one.
-        first, second = DETOUR_ROUNDS
+        first, *later = DETOUR_ROUNDS
         sides = side_routes(pool, origin, destination, first)
         routes = offered.result()
         admit(routes, sides)
-        if len(routes) < WANTED:
-            admit(routes, side_routes(pool, origin, destination, second))
+        for spots in later:
+            if len(routes) >= WANTED:
+                break
+            admit(routes, side_routes(pool, origin, destination, spots))
     routes.sort(key=lambda r: r.duration_seconds)
     return routes[:WANTED]
 
 
-def side_routes(pool, origin, destination, fractions):
+def side_routes(pool, origin, destination, spots):
     return [
-        pool.submit(via, origin, beside(origin, destination, fraction, side), destination)
-        for fraction in fractions
+        pool.submit(via, origin, beside(origin, destination, fraction, side, offset), destination)
+        for fraction, offset in spots
         for side in (1, -1)
     ]
 
@@ -115,15 +119,15 @@ def distinct(candidate, routes):
     return all(shared_fraction(mine, r.line.sample(SAMPLE_MILES), 1.0) <= MOSTLY_SHARED for r in routes)
 
 
-def beside(origin, destination, fraction, side):
-    """A point `fraction` of the way from origin to destination, off to one side."""
+def beside(origin, destination, fraction, side, offset=0.2):
+    """A point `fraction` of the way from origin to destination, `offset` of that distance off to one side."""
     lat0 = math.radians((origin[0] + destination[0]) / 2)
     kx, ky = MILES_PER_DEGREE * math.cos(lat0), MILES_PER_DEGREE
     ax, ay = (destination[1] - origin[1]) * kx, (destination[0] - origin[0]) * ky
     length = math.hypot(ax, ay)
     if length == 0:
         return origin
-    offset = min(max(DETOUR_FRACTION * length, DETOUR_MIN_MILES), DETOUR_MAX_MILES) * side
+    offset = min(max(offset * length, DETOUR_MIN_MILES), DETOUR_MAX_MILES) * side
     px, py = -ay / length * offset, ax / length * offset
     return (origin[0] + (ay * fraction + py) / ky, origin[1] + (ax * fraction + px) / kx)
 
@@ -186,9 +190,14 @@ def _stitch(data, detour):
                 seconds.append(clock + duration * (along[k] / along[-1] if along[-1] else 1.0))
             clock += duration
     distance = float(data["distance"]) / METRES_PER_MILE
+    duration = float(data["duration"])
+    # The steps add up to a second or so off the route's own time; the clock
+    # is nudged so the last vertex lands on it, as the mileage is on the distance.
+    if clock and clock != duration:
+        seconds = [s * duration / clock for s in seconds]
     kept = simplify_indices(points, SHAPE_TOLERANCE_MILES)
     line = Polyline([points[i] for i in kept], distance)
-    return Route(line, [seconds[i] for i in kept], distance, float(data["duration"]), roads, detour)
+    return Route(line, [seconds[i] for i in kept], distance, duration, roads, detour)
 
 
 def road_name(step):

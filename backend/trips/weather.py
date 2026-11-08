@@ -4,12 +4,14 @@ Hourly forecasts from Open-Meteo for a list of points.
 One request carries up to a hundred points and a window of hours; a
 corridor's worth goes out as a few requests at once. Values arrive in the
 units the risk rules use: wind in miles an hour at the top of the hour, rain
-and snow in inches fallen over the hour that ends at the time stamp.
+and snow in inches fallen over the hour that ends at the time stamp. Rain
+is Open-Meteo's large-scale rain plus its convective showers, since the
+rules are about how hard it is raining, not why.
 """
 
 import hashlib
 import logging
-from bisect import bisect_left
+from bisect import bisect_right
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -22,16 +24,18 @@ from .geometry import interpolate
 
 log = logging.getLogger(__name__)
 
-VARIABLES = "wind_speed_10m,rain,snowfall"
+VARIABLES = ("wind_speed_10m", "rain", "showers", "snowfall")
 POINTS_PER_REQUEST = 100
 PARALLEL_REQUESTS = 4
 
-# The window asked for starts at midnight of the departure day and runs at
-# least three days, so that moving a departure around within the day asks
-# nothing new of the service. Forecasts are revised hourly, and a window
+# The window asked for runs from midnight of the departure day to a midnight
+# at least three days on, so that every departure on the same day, and the
+# slider after it, is one fetch. Forecasts are revised hourly; a window
 # fetched again within this long gets the same answer.
 MIN_WINDOW = timedelta(days=3)
 CACHE_SECONDS = 30 * 60
+
+_session = requests.Session()
 
 
 class WeatherError(Exception):
@@ -50,47 +54,58 @@ class Hourly:
     snow: list
 
     def at(self, when):
-        """(wind, rain, snow) at a moment: wind read between the hours, rain and snow for the hour it falls in."""
+        """(wind, rain, snow) at a moment: wind read between the hours, rain and snow for the hour ahead.
+
+        Totals are stamped with the hour they end at, so for a truck setting
+        off at 14:20, or at 14:00 exactly, the hour ahead is the 15:00 stamp.
+        """
         t = when.timestamp()
-        i = min(bisect_left(self.times, t), len(self.times) - 1)
+        i = min(bisect_right(self.times, t), len(self.times) - 1)
         return interpolate(self.times, self.wind, t), self.rain[i], self.snow[i]
 
 
+def horizon():
+    """The last hour Open-Meteo will forecast: 23:00 UTC on the sixteenth day, counting today."""
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    return today + timedelta(days=settings.FORECAST_DAYS) - timedelta(hours=1)
+
+
 def forecast(points, start, end):
-    """One Hourly per point, covering at least the hours from start to end (aware datetimes)."""
+    """One Hourly per point, covering the hours from start to end (aware datetimes) within the horizon."""
     start = start.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    end = max(start + MIN_WINDOW, end.astimezone(timezone.utc).replace(minute=0, second=0, microsecond=0) + timedelta(hours=1))
+    end = min(max(start + MIN_WINDOW, midnight_after(end.astimezone(timezone.utc) + timedelta(hours=1))), horizon())
     chunks = [points[i : i + POINTS_PER_REQUEST] for i in range(0, len(points), POINTS_PER_REQUEST)]
     with ThreadPoolExecutor(max_workers=PARALLEL_REQUESTS) as pool:
         answers = list(pool.map(lambda chunk: _fetch(chunk, start, end), chunks))
     return [hourly for answer in answers for hourly in answer]
 
 
+def midnight_after(when):
+    """The first midnight at or after `when`."""
+    midnight = when.replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight if midnight == when else midnight + timedelta(days=1)
+
+
 def _fetch(points, start, end):
     where = hashlib.sha1(",".join("%.4f,%.4f" % p for p in points).encode()).hexdigest()
-    key = "forecast:%s:%s:%s" % (start.strftime("%Y%m%d%H"), end.strftime("%Y%m%d%H"), where)
+    key = "forecast2:%s:%s:%s" % (start.strftime("%Y%m%d%H"), end.strftime("%Y%m%d%H"), where)
     found = cache.get(key)
     if found is not None:
         return found
-    params = {
-        "latitude": ",".join("%.4f" % lat for lat, _ in points),
-        "longitude": ",".join("%.4f" % lon for _, lon in points),
-        "hourly": VARIABLES,
-        "wind_speed_unit": "mph",
-        "precipitation_unit": "inch",
-        "timezone": "UTC",
-        "timeformat": "unixtime",
-        "start_hour": start.strftime("%Y-%m-%dT%H:%M"),
-        "end_hour": end.strftime("%Y-%m-%dT%H:%M"),
-    }
-    # The forecast starts at midnight UTC today unless earlier days are asked for.
-    behind = (datetime.now(timezone.utc).date() - start.date()).days
-    if behind > 0:
-        params["past_days"] = behind
     try:
         response = _session.get(
             f"{settings.OPEN_METEO_URL}/v1/forecast",
-            params=params,
+            params={
+                "latitude": ",".join("%.4f" % lat for lat, _ in points),
+                "longitude": ",".join("%.4f" % lon for _, lon in points),
+                "hourly": ",".join(VARIABLES),
+                "wind_speed_unit": "mph",
+                "precipitation_unit": "inch",
+                "timezone": "UTC",
+                "timeformat": "unixtime",
+                "start_hour": start.strftime("%Y-%m-%dT%H:%M"),
+                "end_hour": end.strftime("%Y-%m-%dT%H:%M"),
+            },
             headers={"User-Agent": settings.USER_AGENT},
             timeout=settings.HTTP_TIMEOUT,
         )
@@ -118,12 +133,16 @@ def _hourly(data):
     times = [int(t) for t in data["time"]]
     if not times:
         raise ValueError("no hours")
-    # A null is an hour the model has nothing for; nothing is the safe reading
-    # for a rate, and the hours in question are at the far end of the window.
-    columns = [[float(v) if v is not None else 0.0 for v in data[name]] for name in VARIABLES.split(",")]
-    if any(len(column) != len(times) for column in columns):
-        raise ValueError("ragged columns")
-    return Hourly(times, *columns)
-
-
-_session = requests.Session()
+    columns = {}
+    for name in VARIABLES:
+        column = data[name]
+        if len(column) != len(times):
+            raise ValueError("ragged columns")
+        # A null is an hour the model has nothing for. Reading it as calm
+        # would be the wrong way round for a safety rating, so the plan is
+        # refused instead; inside the sixteen-day horizon it does not happen.
+        if any(value is None for value in column):
+            raise WeatherError("the weather service has no forecast for part of this trip")
+        columns[name] = [float(value) for value in column]
+    rain = [r + s for r, s in zip(columns["rain"], columns["showers"])]
+    return Hourly(times, columns["wind_speed_10m"], rain, columns["snowfall"])

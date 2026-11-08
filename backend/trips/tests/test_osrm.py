@@ -59,6 +59,15 @@ class RequestTests(SimpleTestCase):
         self.assertAlmostEqual(route.seconds[1], 1000 * share, places=3)
         self.assertAlmostEqual(route.seconds_at(route.line.miles[1] / 2), 500 * share, places=3)
 
+    def test_the_clock_lands_on_the_route_time_when_the_steps_do_not_add_up(self):
+        route = two_step_route()
+        route["duration"] = 3003.0  # the steps add up to 3000
+        self.answer(body(route))
+        (found,) = alternatives(A, C)
+        self.assertEqual(found.seconds[-1], 3003.0)
+        self.assertAlmostEqual(found.seconds[1], 1800 * 3003 / 3000)
+        self.assertEqual(found.duration_seconds, 3003.0)
+
     def test_the_line_is_thinned_but_its_clock_stays_exact(self):
         straight = east_west_line(35.0, -100.0, 20, step_miles=0.1)
         step = osrm_step(straight, 20 * METRES_PER_MILE, 1200)
@@ -154,6 +163,12 @@ class BesideTests(SimpleTestCase):
         long = beside((40.0, -74.0), (34.0, -118.0), 0.5, 1)
         self.assertAlmostEqual(haversine_miles(37.0, -96.0, *long), 150.0, delta=15)
 
+    def test_a_wider_offset_lands_further_out(self):
+        origin, destination = (35.0, -100.0), (35.0, -98.0)
+        straight = haversine_miles(*origin, *destination)
+        wide = beside(origin, destination, 0.5, 1, offset=0.35)
+        self.assertAlmostEqual(haversine_miles(35.0, -99.0, *wide), 0.35 * straight, delta=0.5)
+
     def test_fraction_moves_along_the_line(self):
         point = beside((35.0, -100.0), (35.0, -98.0), 0.25, 1)
         self.assertAlmostEqual(point[1], -99.5, places=2)
@@ -175,8 +190,9 @@ class DistinctTests(SimpleTestCase):
         self.assertTrue(distinct(other, [self.main]))
 
     def test_but_not_when_it_is_far_slower(self):
-        slow = fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3 * 1.41, detour=True)
+        slow = fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3 * 1.51, detour=True)
         self.assertFalse(distinct(slow, [self.main]))
+        self.assertTrue(distinct(fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3 * 1.49, detour=True), [self.main]))
 
     def test_sharing_the_ends_is_fine(self):
         shared = east_west_line(35.0, -100.0, 200)
@@ -203,17 +219,29 @@ class FindTests(SimpleTestCase):
         north = fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3.4, detour=True)
         south = fake_route(east_west_line(34.6, -100.0, 200), 3600 * 3.2, detour=True)
         self.sides = {round(north.line.points[0][0], 2): north, round(south.line.points[0][0], 2): south}
-        with mock.patch("trips.osrm.beside", side_effect=lambda o, d, f, s: (35.0 + 0.4 * s, -99.0)):
+        with mock.patch("trips.osrm.beside", side_effect=lambda o, d, f, s, offset: (35.0 + 0.4 * s, -99.0)):
             routes = find((35.0, -100.0), (35.0, -96.5))
         self.assertEqual([r.duration_seconds for r in routes], [3600 * 3, 3600 * 3.2, 3600 * 3.4])
         self.assertEqual([r.detour for r in routes], [False, True, True])
 
-    def test_duplicates_and_failures_leave_fewer_routes(self):
+    def test_every_round_is_tried_before_giving_up(self):
         same = fake_route(east_west_line(35.0, -100.0, 200), 3600 * 3.1, detour=True)
         self.sides = {35.4: same}
-        with mock.patch("trips.osrm.beside", side_effect=lambda o, d, f, s: (35.0 + 0.4 * s, -99.0)):
+        spots = []
+        with mock.patch("trips.osrm.beside", side_effect=lambda o, d, f, s, offset: spots.append((f, s, offset)) or (35.0 + 0.4 * s, -99.0)):
             routes = find((35.0, -100.0), (35.0, -96.5))
         self.assertEqual(len(routes), 1)
+        self.assertEqual(sorted(set(spots)), sorted({(0.5, 1, 0.2), (0.5, -1, 0.2), (0.33, 1, 0.2), (0.33, -1, 0.2),
+                                                     (0.67, 1, 0.2), (0.67, -1, 0.2), (0.5, 1, 0.35), (0.5, -1, 0.35)}))
+
+    def test_a_later_round_stops_once_three_are_in_hand(self):
+        north = fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3.4, detour=True)
+        south = fake_route(east_west_line(34.6, -100.0, 200), 3600 * 3.2, detour=True)
+        self.sides = {35.4: north, 34.6: south}
+        with mock.patch("trips.osrm.beside", side_effect=lambda o, d, f, s, offset: (35.0 + 0.4 * s, -99.0)), \
+                mock.patch("trips.osrm.via", wraps=self.side) as via_:
+            find((35.0, -100.0), (35.0, -96.5))
+        self.assertEqual(via_.call_count, 2)
 
     def test_three_offered_routes_need_no_side_points(self):
         self.offered = [fake_route(east_west_line(35.0 + k * 0.3, -100.0, 200), 3600 * (3 + k)) for k in range(3)]
