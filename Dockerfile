@@ -11,7 +11,6 @@ FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     DJANGO_DEBUG=0 \
-    DJANGO_ALLOWED_HOSTS=* \
     CACHE_DIR=/tmp/truckweather-cache
 WORKDIR /app
 COPY backend/requirements.txt backend/
@@ -27,5 +26,6 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
     CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/api/health/' % os.environ.get('PORT', '8000'))"
 # Threads rather than more workers: a request spends its time waiting on the
-# routing and weather services, not computing.
-CMD ["sh", "-c", "exec gunicorn truckweather.wsgi --bind 0.0.0.0:${PORT:-8000} --workers 2 --threads 8 --timeout 90"]
+# routing and weather services, not computing. The timeout outlasts the
+# worst case of every outside request running to its own limit.
+CMD ["sh", "-c", "exec gunicorn truckweather.wsgi --bind 0.0.0.0:${PORT:-8000} --workers 2 --threads 8 --timeout 120"]

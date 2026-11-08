@@ -23,10 +23,14 @@ if not SECRET_KEY:
     SECRET_KEY = "development-only-not-a-secret"
 
 ALLOWED_HOSTS = [h for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h]
+# Render tells a service its own hostname.
+if os.environ.get("RENDER_EXTERNAL_HOSTNAME"):
+    ALLOWED_HOSTS.append(os.environ["RENDER_EXTERNAL_HOSTNAME"])
 
 if not DEBUG:
     # Behind a proxy that terminates TLS and sets X-Forwarded-Proto.
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+    SECURE_HSTS_SECONDS = 30 * 24 * 3600
 
 INSTALLED_APPS = [
     "django.contrib.staticfiles",
@@ -39,6 +43,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
 ROOT_URLCONF = "truckweather.urls"
@@ -111,8 +116,10 @@ OSRM_URL = os.environ.get("OSRM_URL", "https://router.project-osrm.org")
 OPEN_METEO_URL = os.environ.get("OPEN_METEO_URL", "https://api.open-meteo.com")
 PHOTON_URL = os.environ.get("PHOTON_URL", "https://photon.komoot.io")
 USER_AGENT = "weather-aware-truck-routing/1.0 (zuraizwork@gmail.com)"
-HTTP_TIMEOUT = (5, 40)  # connect, read; a coast-to-coast route with every step takes a few seconds
+# Connect and read. A coast-to-coast route with every step takes a few
+# seconds; a plan makes up to four rounds of requests in series, and all
+# of them have to fit inside gunicorn's patience.
+HTTP_TIMEOUT = (5, 20)
 
-# How far ahead a departure may be planned. Open-Meteo forecasts sixteen days;
-# the trip and the forty-eight hours of slider after it have to fit inside.
+# How far ahead Open-Meteo forecasts, counting today.
 FORECAST_DAYS = 16

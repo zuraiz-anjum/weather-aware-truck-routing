@@ -10,7 +10,5 @@ services:
     envVars:
       - key: DJANGO_SECRET_KEY
         generateValue: true
-      - key: DJANGO_ALLOWED_HOSTS
-        value: "*"
       - key: NUM_PROXIES
         value: "1"
