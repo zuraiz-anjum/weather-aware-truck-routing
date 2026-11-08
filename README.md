@@ -60,28 +60,33 @@ without picking a suggestion is looked up the same way when you plan.
 **Three routes.** One request to OSRM, the public OpenStreetMap router,
 asks for alternatives and for every step of each route: the geometry, how
 long the step takes, and what road it is on. OSRM usually offers one or two
-routes. For the rest, the planner routes through a point a fifth of the way
-off to one side of the straight line between the ends, first at the middle
-and then a third of the way from each end, and keeps a candidate when less
-than 85% of it runs within a mile of a route already in hand and it is no
-more than 1.4 times slower than the quickest. Routes found this way are
-marked as such in the response and the card. Between some places there are
-honestly fewer than three distinct roads, and the app says so.
+routes. For the rest, the planner routes through a point off to one side
+of the straight line between the ends: a fifth of the way out at the
+middle, then a third of the way from each end, then further out at the
+middle again, and keeps a candidate when less than 85% of it runs within a
+mile of a route already in hand and it is no more than one and a half
+times slower than the quickest. Routes found this way are marked as such
+in the response and the card. Between some places there are honestly fewer
+than three distinct roads, and the app says so.
 
 **Checkpoints and ETAs.** Checkpoints sit every 10, 25 or 50 miles along
 each route, with the destination as the last. The spacing follows the trip
 length unless you choose one; very long trips are coarsened so that a route
-has at most 150 checkpoints. The time of arrival at each comes from OSRM's
-per-step driving times, interpolated by distance within a step, added to
-the departure. Each checkpoint stands for the stretch of road from it to the
+has at most a hundred checkpoints. The time of arrival at each comes from
+OSRM's per-step driving times, interpolated by distance within a step and
+nudged so the last vertex lands on the route's own time, added to the
+departure. Each checkpoint stands for the stretch of road from it to the
 next, which is how a level becomes miles.
 
 **Weather.** Open-Meteo gives hourly wind at 10 m in mph and rain and snow
 in inches for the hour, for up to a hundred points per request, so the
 checkpoints of all three routes and the cells of the heatmap go out in a
-few parallel requests. At a checkpoint, wind is read between the two
-surrounding hours and rain and snow are the totals for the hour the truck is
-passing through.
+few parallel requests. Rain is Open-Meteo's large-scale rain plus its
+convective showers, which it reports separately and which carry most of
+the heavy rates. At a checkpoint, wind is read between the two surrounding
+hours and rain and snow are the totals for the hour ahead of the truck: a
+checkpoint stands for the road after it, so a truck passing at 14:20, or at
+14:00 exactly, gets the hour that ends at 15:00.
 
 **Risk.** The thresholds from the brief, applied to every checkpoint and
 every heatmap cell:
@@ -107,15 +112,21 @@ four; No Travel miles go first because a route with any is not one the
 truck can take, and ranking it above a route with a few Severe miles would
 be absurd. The recommended route's card says why it beat the quickest one
 ("40 min slower than Route B, but fewer miles rated High"), since that is
-the trade a dispatcher is weighing.
+the trade a dispatcher is weighing. When even the best route has No Travel
+miles nothing is recommended: the plan carries a warning, the top card is
+marked "Not clear to drive", and the ranking is still shown so the least
+bad option and the reason for it are plain.
 
 **Heatmap.** The corridor is a lattice of latitude and longitude cells, a
 band of three along every route, sized so a trip is about thirty cells
-long. Each cell carries its risk level at every hour of the slider,
-computed once on the server with the same rules and the same load. Moving
-the slider only swaps a paint expression on the GPU, so it is instant, and
-the truck markers move to where each route has the truck at that hour.
-Calm cells are a faint wash; trouble is solid.
+long; the legend says how wide they came out. A cell the road runs through
+is forecast at a point on the road, so it agrees with the checkpoints
+inside it; a cell beside the road is forecast at its centre. Each cell
+carries its risk level at every hour of the slider, computed once on the
+server with the same rules and the same load. Moving the slider only swaps
+a paint expression on the GPU, so it is instant, and the truck markers move
+to where each route has the truck at that hour. Calm cells are a faint
+wash; trouble is solid.
 
 ## The API
 
@@ -133,13 +144,15 @@ Calm cells are a faint wash; trouble is solid.
 
 `lat` and `lon` are optional (text alone is geocoded), `interval_miles` is
 optional and one of 10, 25 or 50, and the departure may be up to an hour in
-the past or fourteen days ahead. The answer holds the two places as
-resolved, `routes` ranked best first (each with its name, distance,
-driving time, arrival, GeoJSON geometry, checkpoints with ETA, weather,
-levels and any load rule, and a summary with miles by level, average risk,
-rank and reason), `heatmap` as a GeoJSON FeatureCollection of cells with a
-`levels` array per hour, and `notes` for anything worth saying, such as
-only two routes existing.
+the past or thirteen days ahead, which with the two days of slider after it
+is what Open-Meteo's sixteen-day forecast allows. The answer holds the two
+places as resolved, `routes` ranked best first (each with its name,
+distance, driving time, arrival, GeoJSON geometry, checkpoints with ETA,
+weather, levels and any load rule, and a summary with miles by level,
+average risk, rank, whether it is recommended, and the reason), `heatmap`
+as a GeoJSON FeatureCollection of cells with a `levels` array per hour,
+`notes` for anything worth saying, such as only two routes existing, and
+`warning` when no route is clear to drive.
 
 `GET /api/places/?q=den` returns up to six matching places in the United
 States. `GET /api/health/` answers `{"status": "ok"}` without touching any
@@ -161,10 +174,14 @@ and 429 past 20 plans a minute from one address.
 - Open-Meteo's free tier counts each point of a request against six
   hundred a minute. A plan uses one point per checkpoint and per heatmap
   cell, so the heatmap is kept to two hundred cells and a route to a
-  hundred and fifty checkpoints, forecasts are cached for half an hour in
-  windows aligned to the departure day, and routes for a pair of places for
-  a day. Two or three fresh plans in one minute are fine; a burst gets a
-  503 asking for a minute's patience.
+  hundred checkpoints, and forecasts are cached for half an hour in
+  windows that run from midnight of the departure day to a midnight at
+  least three days on, so that every departure on the same day for the
+  same trip is one fetch; routes for a pair of places are kept for a day.
+  Two or three fresh plans in one minute are fine; a burst gets a 503
+  asking for a minute's patience.
+- An hour the model has no value for refuses the plan rather than reading
+  as calm. Inside the sixteen-day horizon it does not happen.
 - Routes are cached without regard to the load, since OSRM routes a car:
   the load only enters the risk rules.
 - Wind is sustained wind at 10 m. Gusts are higher; the brief's thresholds
@@ -183,22 +200,27 @@ the service every ten minutes once the repository variable `APP_URL` is set
 to its address.
 
 The image runs anywhere Docker does. It needs `DJANGO_SECRET_KEY`, honours
-`PORT`, and takes `DJANGO_ALLOWED_HOSTS`, `NUM_PROXIES` (1 behind a proxy
-that sets `X-Forwarded-For`), `CACHE_DIR`, and `OSRM_URL`, `OPEN_METEO_URL`
-and `PHOTON_URL` for self-hosted copies of the services.
+`PORT`, and takes `DJANGO_ALLOWED_HOSTS` (Render's own hostname is picked up
+by itself), `NUM_PROXIES` (1 behind a proxy that sets `X-Forwarded-For`),
+`CACHE_DIR`, and `OSRM_URL`, `OPEN_METEO_URL` and `PHOTON_URL` for
+self-hosted copies of the services.
 
 ## Tests and checks
 
-`python manage.py test` runs the backend's 119 tests: the risk table at
+`python manage.py test` runs the backend's 126 tests: the risk table at
 every boundary, checkpoint placement, the heatmap lattice, the polyline
 decoder against the format's reference, the OSRM stitching and side-route
-logic, Open-Meteo chunking and caching, the planner's ranking, and the API
-end to end with the services stubbed. `npm test` runs the frontend's 23:
+logic, Open-Meteo windows, chunking and caching, the planner's ranking,
+and the API end to end with the services stubbed. Three more run against
+the real services when `LIVE_SERVICES=1` is set: the forecast window at
+both ends of the allowed range, and a short trip through the whole
+planner. They exist because the stubs can only check what the code
+expects, not what the services accept. `npm test` runs the frontend's 26:
 time and distance helpers, the form's validation and payload, the place
 suggestions, the route cards, and the app's planning flow with the map
-stubbed out, since jsdom has no WebGL. CI runs both, type-checks and lints
-the frontend, builds the image, starts it, and checks that it serves the
-API and the page.
+stubbed out, since jsdom has no WebGL. CI runs both suites, the live tests
+as an advisory job, type-checks and lints the frontend, builds the image,
+starts it, and checks that it serves the API and the page.
 
 ## Layout
 
