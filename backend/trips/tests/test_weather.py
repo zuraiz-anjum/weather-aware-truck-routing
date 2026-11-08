@@ -78,7 +78,9 @@ class ForecastTests(CacheTestCase):
 
     def test_window_and_units_in_the_request(self):
         get = self.answer(body_for(2))
-        start = self.soon(2)
+        # Tomorrow at six, so that the slider's end lands inside the three-day
+        # minimum whatever the time of day the test runs at.
+        start = self.soon(24).replace(hour=6, minute=0, second=0)
         forecast([(35.0, -100.0), (36.0, -101.0)], start, start + timedelta(hours=48))
         params = get.call_args[1]["params"]
         self.assertEqual(params["latitude"], "35.0000,36.0000")
@@ -158,10 +160,20 @@ class ForecastTests(CacheTestCase):
             forecast([(35.0, -100.0)], at(0), at(48))
         self.assertIn("no forecast for part of this trip", str(caught.exception))
 
-    def test_the_minute_allowance_running_out_is_its_own_error(self):
-        self.answer({"error": True, "reason": "Minutely API request limit exceeded. Please try again in one minute."}, 429)
-        with self.assertRaises(WeatherBusy):
-            forecast([(35.0, -100.0)], at(0), at(48))
+    def test_an_allowance_running_out_is_its_own_error_and_says_how_long_to_wait(self):
+        cases = [
+            ("Minutely API request limit exceeded. Please try again in one minute.", 60, "in a minute"),
+            ("Hourly API request limit exceeded. Please try again in the next hour.", 3600, "in an hour"),
+            ("Daily API request limit exceeded. Please try again tomorrow.", 86400, "tomorrow"),
+            ("API request limit exceeded.", 60, "in a minute"),
+        ]
+        for reason, seconds, when in cases:
+            with self.subTest(reason=reason):
+                self.answer({"error": True, "reason": reason}, 429)
+                with self.assertRaises(WeatherBusy) as caught:
+                    forecast([(35.0, -100.0)], at(0), at(48))
+                self.assertEqual(caught.exception.retry_after, seconds)
+                self.assertIn(when, str(caught.exception))
 
     def test_failures(self):
         cases = [

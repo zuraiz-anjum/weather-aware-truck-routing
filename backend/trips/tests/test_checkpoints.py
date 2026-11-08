@@ -17,6 +17,7 @@ class PlaceTests(SimpleTestCase):
         line, seconds = steady_route(100, length=112.0)
         points = place(line, seconds, 25)
         self.assertEqual([round(c.mile, 3) for c in points], [0, 25, 50, 75, 100, 112])
+        self.assertIsInstance(points[0].mile, float)
         self.assertEqual([round(c.covers_miles, 3) for c in points], [25, 25, 25, 25, 12, 0])
         self.assertAlmostEqual(points[2].seconds, 50 / 60 * 3600)
         self.assertEqual((points[0].lat, points[0].lon), line.points[0])
@@ -49,6 +50,13 @@ class IntervalTests(SimpleTestCase):
         self.assertEqual(choose_interval(25, 2400), 25)
         self.assertEqual(choose_interval(25, 25 * MAX_PER_ROUTE + 1), 50)
         self.assertEqual(choose_interval(50, 10_000), 50)
+
+    def test_the_cap_counts_checkpoints_not_intervals(self):
+        # 990 miles every 10 is 99 stretches and 100 checkpoints; 995 would be 101.
+        self.assertEqual(choose_interval(10, 10 * (MAX_PER_ROUTE - 1)), 10)
+        self.assertEqual(choose_interval(10, 10 * (MAX_PER_ROUTE - 1) + 5), 25)
+        line, seconds = steady_route(990, length=990.0)
+        self.assertEqual(len(place(line, seconds, 10)), MAX_PER_ROUTE)
 
     def test_default_by_length(self):
         self.assertEqual(default_interval(120), 10)

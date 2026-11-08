@@ -1,8 +1,11 @@
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
+from django.core.cache import cache
+
+from trips import planner
 from trips.geocoding import Place
-from trips.osrm import NoRoute
+from trips.osrm import Found, NoRoute
 from trips.planner import PlanningError, describe, plan, reason
 from trips.risk import HIGH, LOW, NO_TRAVEL, SEVERE
 
@@ -30,7 +33,7 @@ class PlanTests(CacheTestCase):
     def setUp(self):
         super().setUp()
         self.departure = datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=2)
-        self.find = mock.patch("trips.osrm.find", return_value=three_routes()).start()
+        self.find = mock.patch("trips.osrm.find", return_value=Found(three_routes(), 0)).start()
         self.forecast = mock.patch("trips.weather.forecast", side_effect=fake_forecast(windy_north)).start()
         self.addCleanup(mock.patch.stopall)
 
@@ -61,7 +64,7 @@ class PlanTests(CacheTestCase):
         result = plan(ORIGIN, DESTINATION, self.departure, 20_000)
         self.assertEqual([r["summary"]["recommended"] for r in result["routes"]], [False, False, False])
         self.assertEqual(result["routes"][0]["summary"]["rank"], 1)
-        self.assertEqual(result["routes"][0]["summary"]["reason"], "the quickest route, and no other scores better on weather")
+        self.assertIsNone(result["routes"][0]["summary"]["reason"])
         self.assertIn("No route is clear to drive", result["warning"])
         self.assertIn("Route A is the least bad and still has 200 miles rated No Travel", result["warning"])
 
@@ -90,12 +93,40 @@ class PlanTests(CacheTestCase):
 
     def test_the_interval_defaults_by_length_and_is_coarsened_with_a_note(self):
         self.assertEqual(plan(ORIGIN, DESTINATION, self.departure, 20_000)["interval_miles"], 10)
-        self.find.return_value = [fake_route(east_west_line(35.0, -110.0, 2800), 45 * 3600)]
+        self.find.return_value = Found([fake_route(east_west_line(35.0, -110.0, 2800), 45 * 3600)], 0)
         far = Place("Far, California", 35.0, -120.0)
         result = plan(ORIGIN, far, self.departure, 20_000, interval=10)
         self.assertEqual(result["interval_miles"], 50)
         self.assertIn("every 50 miles rather than 10", result["notes"][-1])
-        self.assertIn("Only one distinct road route was found", result["notes"][0])
+        self.assertEqual(result["notes"][0], "Only one distinct road route was found between these places.")
+        self.assertEqual(len(result["notes"]), 2)
+
+    def test_a_short_set_after_failed_requests_says_so_and_is_not_kept_for_long(self):
+        self.find.return_value = Found(three_routes()[:2], 1)
+        with mock.patch.object(cache, "set", wraps=cache.set) as set_:
+            result = plan(ORIGIN, DESTINATION, self.departure, 20_000)
+        self.assertIn("did not answer every request", result["notes"][1])
+        routes_call = next(c for c in set_.call_args_list if c.args[0].startswith("routes:"))
+        self.assertEqual(routes_call.args[2], planner.SHORT_CACHE_SECONDS)
+
+    def test_a_full_set_is_kept_for_a_day(self):
+        with mock.patch.object(cache, "set", wraps=cache.set) as set_:
+            plan(ORIGIN, DESTINATION, self.departure, 20_000)
+        routes_call = next(c for c in set_.call_args_list if c.args[0].startswith("routes:"))
+        self.assertEqual(routes_call.args[2], planner.ROUTES_CACHE_SECONDS)
+
+    def test_each_forecast_point_is_asked_for_once(self):
+        twin = fake_route(east_west_line(35.0, -100.0, 200), 3.5 * 3600, detour=True)
+        self.find.return_value = Found([three_routes()[0], twin], 0)
+        result = plan(ORIGIN, DESTINATION, self.departure, 20_000)
+        (points, _, _), _ = self.forecast.call_args
+        checkpoints = sum(len(r["checkpoints"]) for r in result["routes"])
+        cells = len(result["heatmap"]["features"])
+        # The twin's checkpoints, and the cells the road samples land on a
+        # checkpoint in, add nothing to the request.
+        self.assertEqual(len(points), len(set(points)))
+        self.assertLessEqual(len(points), checkpoints // 2 + cells)
+        self.assertEqual(result["routes"][1]["checkpoints"][3]["wind_mph"], result["routes"][0]["checkpoints"][3]["wind_mph"])
 
     def test_the_heatmap_has_a_level_for_every_slider_hour_of_every_cell(self):
         result = plan(ORIGIN, DESTINATION, self.departure, 20_000)
@@ -116,10 +147,12 @@ class PlanTests(CacheTestCase):
         self.assertEqual(start, self.departure)
         self.assertEqual(end, self.departure + timedelta(hours=48))
         checkpoints = sum(len(r["checkpoints"]) for r in result["routes"])
-        self.assertEqual(len(points), checkpoints + len(result["heatmap"]["features"]))
+        cells = len(result["heatmap"]["features"])
+        self.assertGreater(len(points), max(checkpoints, cells))
+        self.assertLessEqual(len(points), checkpoints + cells)
 
     def test_a_long_trip_stretches_the_forecast_window_past_the_slider(self):
-        self.find.return_value = [fake_route(east_west_line(35.0, -110.0, 2800), 60 * 3600)]
+        self.find.return_value = Found([fake_route(east_west_line(35.0, -110.0, 2800), 60 * 3600)], 0)
         plan(ORIGIN, DESTINATION, self.departure, 20_000)
         (_, _, end), _ = self.forecast.call_args
         self.assertEqual(end, self.departure + timedelta(hours=60))
@@ -139,7 +172,7 @@ class PlanTests(CacheTestCase):
             plan(ORIGIN, DESTINATION, self.departure, 20_000)
 
     def test_a_trip_running_past_the_forecast_is_refused(self):
-        self.find.return_value = [fake_route(east_west_line(35.0, -110.0, 2800), 17 * 24 * 3600)]
+        self.find.return_value = Found([fake_route(east_west_line(35.0, -110.0, 2800), 17 * 24 * 3600)], 0)
         with self.assertRaises(PlanningError) as caught:
             plan(ORIGIN, DESTINATION, self.departure, 20_000)
         self.assertIn("forecast runs to", str(caught.exception))

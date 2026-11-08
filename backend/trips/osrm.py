@@ -5,12 +5,17 @@ One request with alternatives and steps gives each route's full geometry,
 the driving time of every step, which puts a clock on every vertex, and the
 roads it follows. OSRM's own alternatives are usually one or two. The rest
 are found by routing through a point off to one side of the straight line
-between the ends, and kept when they are mostly new road and not much
-slower; a trip down a single valley may honestly have fewer than three.
+between the ends. Such a point is an arbitrary spot the road has to leave
+and come back to, so a promising candidate is routed once more through a
+point on its new stretch itself, which gives the road without the
+excursion. A candidate is kept when its new road actually gets somewhere,
+is mostly new, and is not much slower; a trip down a single valley may
+honestly have fewer than three.
 """
 
 import logging
 import math
+from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
@@ -18,7 +23,9 @@ import requests
 from django.conf import settings
 
 from . import polyline
-from .geometry import MILES_PER_DEGREE, Polyline, haversine_miles, interpolate, shared_fraction, simplify_indices
+from .geometry import (
+    MILES_PER_DEGREE, Polyline, haversine_miles, interpolate, near_mask, passes_once, shared_fraction, simplify_indices,
+)
 
 log = logging.getLogger(__name__)
 
@@ -39,13 +46,18 @@ DETOUR_ROUNDS = (((0.5, 0.2),), ((0.33, 0.2), (0.67, 0.2)), ((0.5, 0.35),))
 DETOUR_MIN_MILES = 8.0
 DETOUR_MAX_MILES = 150.0
 
-# A candidate is a route of its own when less than this much of it runs
-# within a mile of a route already in hand, and it is no slower than this
-# many times the quickest: a safer road half as long again is still an
-# option a dispatcher would want to see.
-MOSTLY_SHARED = 0.85
-SLOWER_AT_MOST = 1.5
+# A candidate is a route of its own when its longest stretch of new road is
+# at least MIN_NEW_MILES long with its ends at least SPREAD of that apart
+# (an excursion that leaves a road and comes back to the same place is not
+# a route), when less than MOSTLY_SHARED of it runs within a mile of a route
+# already in hand, and when it is no slower than SLOWER_AT_MOST times the
+# quickest: a safer road half as long again is still one a dispatcher would
+# want to see.
 SAMPLE_MILES = 2.0
+MIN_NEW_MILES = 10.0
+SPREAD = 0.4
+MOSTLY_SHARED = 0.85
+SLOWER_AT_MOST = 1.6
 
 
 class RoutingError(Exception):
@@ -69,11 +81,14 @@ class Route:
         return interpolate(self.line.miles, self.seconds, mile)
 
 
+Found = namedtuple("Found", "routes missed")  # missed: side requests that failed, so the set may be short
+Run = namedtuple("Run", "length gap middle")
+
 _session = requests.Session()
 
 
 def find(origin, destination):
-    """Up to three distinct routes from origin to destination, quickest first."""
+    """Up to three distinct routes from origin to destination, quickest first, and how many requests failed."""
     with ThreadPoolExecutor(max_workers=4) as pool:
         offered = pool.submit(alternatives, origin, destination)
         # The first pair of side points is asked for alongside the main
@@ -81,13 +96,13 @@ def find(origin, destination):
         first, *later = DETOUR_ROUNDS
         sides = side_routes(pool, origin, destination, first)
         routes = offered.result()
-        admit(routes, sides)
+        missed = admit(pool, origin, destination, routes, sides)
         for spots in later:
             if len(routes) >= WANTED:
                 break
-            admit(routes, side_routes(pool, origin, destination, spots))
+            missed += admit(pool, origin, destination, routes, side_routes(pool, origin, destination, spots))
     routes.sort(key=lambda r: r.duration_seconds)
-    return routes[:WANTED]
+    return Found(routes[:WANTED], missed)
 
 
 def side_routes(pool, origin, destination, spots):
@@ -98,17 +113,62 @@ def side_routes(pool, origin, destination, spots):
     ]
 
 
-def admit(routes, jobs):
-    """Add the side routes that are routes of their own, quicker ones first."""
-    candidates = []
+def admit(pool, origin, destination, routes, jobs):
+    """Add the side routes that are roads of their own, quicker ones first; returns how many requests failed."""
+    candidates, missed = [], 0
     for job in jobs:
         try:
             candidates.append(job.result())
+        except NoRoute:
+            pass  # a side point in the sea or the wilderness; nothing to retry
         except RoutingError as exc:
+            missed += 1
             log.info("side route failed: %s", exc)
+    refined = {}
+    for candidate in candidates:
+        run = bridging(candidate, routes)
+        if run:
+            refined[id(candidate)] = pool.submit(via, origin, run.middle, destination)
     for candidate in sorted(candidates, key=lambda r: r.duration_seconds):
-        if len(routes) < WANTED and distinct(candidate, routes):
-            routes.append(candidate)
+        if len(routes) >= WANTED:
+            break
+        options = [candidate]
+        if id(candidate) in refined:
+            try:
+                options.append(refined[id(candidate)].result())
+            except RoutingError as exc:
+                missed += 1
+                log.info("refined side route failed: %s", exc)
+        for option in sorted(options, key=lambda r: r.duration_seconds):
+            if bridging(option, routes) and distinct(option, routes):
+                routes.append(option)
+                break
+    return missed
+
+
+def bridging(route, others):
+    """The longest stretch of `route` that is new road and gets somewhere, or None for a spur."""
+    mine = route.line.sample(SAMPLE_MILES)
+    theirs = [p for o in others for p in o.line.sample(SAMPLE_MILES)]
+    near = near_mask(mine, theirs, 1.0)
+    once = passes_once(mine, 1.0)
+    best = start = None
+    for i, is_near in enumerate(near + [True]):
+        if not is_near and start is None:
+            start = i
+        elif is_near and start is not None:
+            length = SAMPLE_MILES * (i - start)
+            gap = haversine_miles(*mine[max(start - 1, 0)], *mine[min(i, len(mine) - 1)])
+            if length >= MIN_NEW_MILES and gap >= SPREAD * length and (best is None or length > best.length):
+                # The point to route through again: on the new road, as near
+                # its middle as can be, and somewhere the route passes only
+                # once with room on either side, so not on the way out to the
+                # side point and back, nor at the turn.
+                middle = (start + i) // 2
+                single = [k for k in range(start, i) if all(once[max(start, k - 3) : min(i, k + 4)])] or [middle]
+                best = Run(length, gap, mine[min(single, key=lambda k: abs(k - middle))])
+            start = None
+    return best
 
 
 def distinct(candidate, routes):

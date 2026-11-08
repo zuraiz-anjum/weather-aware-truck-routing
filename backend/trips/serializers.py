@@ -5,10 +5,11 @@ from rest_framework import serializers
 from .checkpoints import INTERVALS
 
 # A dispatcher plans the week ahead; further out the forecast is weather
-# lore. Open-Meteo stops at sixteen days, counting today, and the trip and
-# the two days of slider after the departure have to fit inside that.
+# lore. Open-Meteo stops at 23:00 UTC on the sixteenth day counting today,
+# and the two days of slider after the departure have to fit inside that
+# whatever the time of day the request is made: thirteen days less an hour.
 EARLIEST_BEHIND = timedelta(hours=1)
-LATEST_AHEAD = timedelta(days=13)
+LATEST_AHEAD = timedelta(days=13) - timedelta(hours=1)
 
 MAX_LOAD_LB = 200_000
 
@@ -40,5 +41,6 @@ class PlanInput(serializers.Serializer):
         if value < now - EARLIEST_BEHIND:
             raise serializers.ValidationError("the departure is in the past")
         if value > now + LATEST_AHEAD:
-            raise serializers.ValidationError("the departure is more than %d days away" % LATEST_AHEAD.days)
+            raise serializers.ValidationError(
+                "the departure is too far ahead; the latest is %s UTC" % (now + LATEST_AHEAD).strftime("%d %b %H:%M"))
         return value.replace(microsecond=0)

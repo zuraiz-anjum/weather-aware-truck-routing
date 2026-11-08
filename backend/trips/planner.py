@@ -18,6 +18,9 @@ from .geometry import haversine_miles
 
 SLIDER_HOURS = 48
 ROUTES_CACHE_SECONDS = 24 * 3600
+# When a side request failed the set of routes may be short through no
+# fault of the geography, so it is kept only long enough to ride out a blip.
+SHORT_CACHE_SECONDS = 10 * 60
 SAME_PLACE_MILES = 1.0
 
 # The recommendation, in the brief's order: fewest Severe miles, fewest High
@@ -41,11 +44,13 @@ def plan(origin, destination, departure, load_lb, interval=None):
     departure = departure.replace(microsecond=0)
     if haversine_miles(origin.lat, origin.lon, destination.lat, destination.lon) < SAME_PLACE_MILES:
         raise PlanningError("the origin and the destination are the same place")
-    routes = find_routes((origin.lat, origin.lon), (destination.lat, destination.lon))
+    routes, missed = find_routes((origin.lat, origin.lon), (destination.lat, destination.lon))
     notes = []
     if len(routes) < osrm.WANTED:
         notes.append("Only %s distinct road route%s found between these places." % (
             ("one", " was") if len(routes) == 1 else ("two", "s were")))
+        if missed:
+            notes.append("The routing service did not answer every request; another try in a few minutes may find more.")
 
     longest_miles = max(r.distance_miles for r in routes)
     requested = interval or checkpoints.default_interval(longest_miles)
@@ -61,8 +66,13 @@ def plan(origin, destination, departure, load_lb, interval=None):
         raise PlanningError("the forecast runs to %s UTC and this trip would still need it after that; leave earlier"
                             % horizon.strftime("%d %b %H:%M"))
 
-    points = [(c.lat, c.lon) for route_stops in stops for c in route_stops] + [cell.point for cell in band.cells]
-    hourlies = weather.forecast(points, departure, end)
+    # One forecast request for everything, each distinct point once: the
+    # routes share their ends, and every point counts against the allowance.
+    wanted = [(c.lat, c.lon) for route_stops in stops for c in route_stops] + [cell.point for cell in band.cells]
+    index = {}
+    slots = [index.setdefault((round(lat, 4), round(lon, 4)), len(index)) for lat, lon in wanted]
+    fetched = weather.forecast(list(index), departure, end)
+    hourlies = [fetched[slot] for slot in slots]
     taken = 0
     judged = []
     for route, route_stops in zip(routes, stops):
@@ -100,7 +110,7 @@ def plan(origin, destination, departure, load_lb, interval=None):
                 **verdict["summary"],
                 "rank": rank,
                 "recommended": rank == 1 and not blocked,
-                "reason": reason(verdict["key"], judged[quickest]["key"], ids[quickest]) if rank == 1 else None,
+                "reason": reason(verdict["key"], judged[quickest]["key"], ids[quickest]) if rank == 1 and not blocked else None,
             },
         })
 
@@ -119,12 +129,13 @@ def plan(origin, destination, departure, load_lb, interval=None):
 
 
 def find_routes(origin, destination):
+    """The routes for a pair of places and how many side requests failed, from the cache when it has them."""
     key = "routes:%.4f,%.4f:%.4f,%.4f" % (*origin, *destination)
-    routes = cache.get(key)
-    if routes is None:
-        routes = osrm.find(origin, destination)
-        cache.set(key, routes, ROUTES_CACHE_SECONDS)
-    return routes
+    found = cache.get(key)
+    if found is None:
+        found = osrm.find(origin, destination)
+        cache.set(key, found, SHORT_CACHE_SECONDS if found.missed else ROUTES_CACHE_SECONDS)
+    return found
 
 
 def judge(route, stops, hourlies, departure, load_lb):

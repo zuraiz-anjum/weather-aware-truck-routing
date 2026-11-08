@@ -1,6 +1,6 @@
 from django.test import SimpleTestCase
 
-from trips.geometry import MILES_PER_DEGREE, Polyline, haversine_miles, interpolate, shared_fraction, simplify
+from trips.geometry import MILES_PER_DEGREE, Polyline, haversine_miles, interpolate, passes_once, shared_fraction, simplify
 
 NEW_YORK = (40.7128, -74.0060)
 LOS_ANGELES = (34.0522, -118.2437)
@@ -104,3 +104,21 @@ class SharedFractionTests(SimpleTestCase):
 
     def test_empty_input(self):
         self.assertEqual(shared_fraction([], [(1.0, 1.0)], 1.0), 0.0)
+
+
+class PassesOnceTests(SimpleTestCase):
+    def test_a_straight_road_is_driven_once_throughout(self):
+        self.assertTrue(all(passes_once(east_west_line(35.0, -100.0, 100, step_miles=2.0), 1.0)))
+
+    def test_the_way_out_to_a_spot_and_back_is_not(self):
+        road = east_west_line(35.0, -100.0, 100, step_miles=2.0)
+        north = [(35.0 + k * 2.0 / MILES_PER_DEGREE, road[25][1]) for k in range(1, 8)]
+        with_spur = road[:26] + north + north[-2::-1] + road[25:]
+        once = passes_once(with_spur, 1.0)
+        self.assertTrue(all(once[:24]) and all(once[-24:]))
+        # The way out and the way back, short of the turn itself, which is passed once.
+        self.assertFalse(any(once[27:31]))
+        self.assertFalse(any(once[34:38]))
+
+    def test_empty(self):
+        self.assertEqual(passes_once([], 1.0), [])

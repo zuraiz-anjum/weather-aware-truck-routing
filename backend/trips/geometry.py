@@ -75,7 +75,7 @@ class Polyline:
 
     def markers(self, step_miles):
         """Mile markers every step_miles from the start, with the end itself last."""
-        marks = [k * step_miles for k in range(int(self.length // step_miles) + 1)]
+        marks = [float(k * step_miles) for k in range(int(self.length // step_miles) + 1)]
         if self.length - marks[-1] > 1e-9:
             marks.append(self.length)
         return marks
@@ -132,14 +132,45 @@ def simplify_indices(points, tolerance_miles):
 
 
 def shared_fraction(points, others, within_miles):
-    """The fraction of `points` that lie within within_miles of some point of `others`.
+    """The fraction of `points` that lie within within_miles of some point of `others`."""
+    if not points:
+        return 0.0
+    return sum(near_mask(points, others, within_miles)) / len(points)
+
+
+def passes_once(points, within_miles, apart=3):
+    """For each point of a sampled line, whether no part of the line `apart` samples or more away comes within within_miles.
+
+    A road driven out to a spot and back along itself fails this on the
+    way out and on the way back.
+    """
+    xy = flat(points) if points else []
+    size = within_miles
+    buckets = {}
+    for k, (x, y) in enumerate(xy):
+        buckets.setdefault((int(x // size), int(y // size)), []).append((k, x, y))
+    limit = within_miles * within_miles
+    out = []
+    for k, (x, y) in enumerate(xy):
+        i, j = int(x // size), int(y // size)
+        out.append(not any(
+            abs(other - k) >= apart and (x - bx) ** 2 + (y - by) ** 2 <= limit
+            for di in (-1, 0, 1)
+            for dj in (-1, 0, 1)
+            for other, bx, by in buckets.get((i + di, j + dj), ())
+        ))
+    return out
+
+
+def near_mask(points, others, within_miles):
+    """For each of `points`, whether some point of `others` lies within within_miles.
 
     Both are expected to be sampled at a spacing no coarser than within_miles,
     which makes a bucket grid of that size exact enough: a point can only be
     near something in its own or an adjacent bucket.
     """
     if not points:
-        return 0.0
+        return []
     xy = flat(points + others)
     mine, theirs = xy[: len(points)], xy[len(points) :]
     size = within_miles
@@ -157,4 +188,4 @@ def shared_fraction(points, others, within_miles):
                         return True
         return False
 
-    return sum(close(x, y) for x, y in mine) / len(points)
+    return [close(x, y) for x, y in mine]

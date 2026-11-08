@@ -5,7 +5,8 @@ from django.test import SimpleTestCase, override_settings
 
 import trips.osrm
 from trips.geometry import haversine_miles
-from trips.osrm import METRES_PER_MILE, NoRoute, Route, RoutingError, alternatives, beside, distinct, find, road_name, via
+from trips.geometry import MILES_PER_DEGREE
+from trips.osrm import METRES_PER_MILE, NoRoute, Route, RoutingError, alternatives, beside, bridging, distinct, find, road_name, via
 
 from .support import FakeResponse, fake_route, osrm_route, osrm_step
 from .test_geometry import east_west_line
@@ -190,9 +191,9 @@ class DistinctTests(SimpleTestCase):
         self.assertTrue(distinct(other, [self.main]))
 
     def test_but_not_when_it_is_far_slower(self):
-        slow = fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3 * 1.51, detour=True)
+        slow = fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3 * 1.61, detour=True)
         self.assertFalse(distinct(slow, [self.main]))
-        self.assertTrue(distinct(fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3 * 1.49, detour=True), [self.main]))
+        self.assertTrue(distinct(fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3 * 1.59, detour=True), [self.main]))
 
     def test_sharing_the_ends_is_fine(self):
         shared = east_west_line(35.0, -100.0, 200)
@@ -201,15 +202,57 @@ class DistinctTests(SimpleTestCase):
         self.assertTrue(distinct(fake_route(bend, 3600 * 3.3, detour=True), [self.main]))
 
 
+def with_loop(points, at_index, miles_out):
+    """The same line with an out-and-back excursion to the north at one vertex: a spur, not a route."""
+    lat, lon = points[at_index]
+    step = miles_out / MILES_PER_DEGREE / 4
+    out = [(lat + k * step, lon) for k in range(1, 5)]
+    return points[: at_index + 1] + out + out[-2::-1] + points[at_index:]
+
+
+class BridgingTests(SimpleTestCase):
+    def setUp(self):
+        self.main = fake_route(east_west_line(35.0, -100.0, 200), 3600 * 3)
+
+    def test_a_road_of_its_own_bridges_the_whole_way(self):
+        other = fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3.4, detour=True)
+        run = bridging(other, [self.main])
+        self.assertIsNotNone(run)
+        self.assertAlmostEqual(run.length, 200, delta=4)
+        self.assertAlmostEqual(run.gap, 200, delta=4)
+        self.assertAlmostEqual(run.middle[0], 35.4)
+
+    def test_a_stretch_between_two_shared_ends_bridges_too(self):
+        shared = east_west_line(35.0, -100.0, 200)
+        middle = east_west_line(35.3, shared[50][1], 100)
+        bend = shared[:50] + middle + shared[150:]
+        run = bridging(fake_route(bend, 3600 * 3.3, detour=True), [self.main])
+        self.assertIsNotNone(run)
+        self.assertAlmostEqual(run.gap, 100, delta=6)
+        self.assertAlmostEqual(run.middle[0], 35.3)
+
+    def test_an_out_and_back_excursion_is_a_spur(self):
+        spur = fake_route(with_loop(east_west_line(35.0, -100.0, 200), 100, 12.0), 3600 * 3.3, detour=True)
+        self.assertIsNone(bridging(spur, [self.main]))
+
+    def test_a_nick_too_short_to_count_and_the_same_road_are_nothing(self):
+        nick = fake_route(with_loop(east_west_line(35.0, -100.0, 200), 100, 3.0), 3600 * 3.1, detour=True)
+        self.assertIsNone(bridging(nick, [self.main]))
+        self.assertIsNone(bridging(fake_route(east_west_line(35.0, -100.0, 200), 3600 * 3.1), [self.main]))
+
+
 class FindTests(SimpleTestCase):
     def setUp(self):
         self.offered = [fake_route(east_west_line(35.0, -100.0, 200), 3600 * 3)]
         self.sides = {}
         mock.patch("trips.osrm.alternatives", side_effect=lambda o, d: list(self.offered)).start()
         mock.patch("trips.osrm.via", side_effect=self.side).start()
+        # Side points land 0.4 degrees north or south of the line, at -99.
+        mock.patch("trips.osrm.beside", side_effect=lambda o, d, f, s, offset: (35.0 + 0.4 * s, -99.0)).start()
         self.addCleanup(mock.patch.stopall)
 
     def side(self, origin, through, destination):
+        """What routing through a point gives, by the point's latitude to two places."""
         answer = self.sides.get(round(through[0], 2))
         if answer is None:
             raise RoutingError("nothing there")
@@ -218,36 +261,60 @@ class FindTests(SimpleTestCase):
     def test_offered_routes_are_topped_up_from_side_points(self):
         north = fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3.4, detour=True)
         south = fake_route(east_west_line(34.6, -100.0, 200), 3600 * 3.2, detour=True)
-        self.sides = {round(north.line.points[0][0], 2): north, round(south.line.points[0][0], 2): south}
-        with mock.patch("trips.osrm.beside", side_effect=lambda o, d, f, s, offset: (35.0 + 0.4 * s, -99.0)):
-            routes = find((35.0, -100.0), (35.0, -96.5))
-        self.assertEqual([r.duration_seconds for r in routes], [3600 * 3, 3600 * 3.2, 3600 * 3.4])
-        self.assertEqual([r.detour for r in routes], [False, True, True])
+        self.sides = {35.4: north, 34.6: south}
+        found = find((35.0, -100.0), (35.0, -96.5))
+        self.assertEqual([r.duration_seconds for r in found.routes], [3600 * 3, 3600 * 3.2, 3600 * 3.4])
+        self.assertEqual([r.detour for r in found.routes], [False, True, True])
+        self.assertEqual(found.missed, 0)
 
-    def test_every_round_is_tried_before_giving_up(self):
+    def test_a_promising_candidate_is_routed_again_through_its_own_new_road(self):
+        # The side point at 35.4 gives a slow route that runs along 35.3 with
+        # an excursion; routing through a point on 35.3 gives the clean road.
+        wiggly = fake_route(with_loop(east_west_line(35.3, -100.0, 200), 100, 10.0), 3600 * 4.5, detour=True)
+        clean = fake_route(east_west_line(35.3, -100.0, 200), 3600 * 3.3, detour=True)
+        self.sides = {35.4: wiggly, 35.3: clean}
+        found = find((35.0, -100.0), (35.0, -96.5))
+        self.assertIn(clean, found.routes)
+        self.assertNotIn(wiggly, found.routes)
+
+    def test_spurs_are_refused_whatever_their_time(self):
+        spur = fake_route(with_loop(east_west_line(35.0, -100.0, 200), 100, 12.0), 3600 * 3.2, detour=True)
+        self.sides = {35.4: spur, 34.6: spur}
+        found = find((35.0, -100.0), (35.0, -96.5))
+        self.assertEqual(len(found.routes), 1)
+
+    def test_every_round_is_tried_before_giving_up_and_failures_are_counted(self):
         same = fake_route(east_west_line(35.0, -100.0, 200), 3600 * 3.1, detour=True)
         self.sides = {35.4: same}
         spots = []
         with mock.patch("trips.osrm.beside", side_effect=lambda o, d, f, s, offset: spots.append((f, s, offset)) or (35.0 + 0.4 * s, -99.0)):
-            routes = find((35.0, -100.0), (35.0, -96.5))
-        self.assertEqual(len(routes), 1)
+            found = find((35.0, -100.0), (35.0, -96.5))
+        self.assertEqual(len(found.routes), 1)
+        self.assertEqual(found.missed, 4)  # the southern point failed in every round
         self.assertEqual(sorted(set(spots)), sorted({(0.5, 1, 0.2), (0.5, -1, 0.2), (0.33, 1, 0.2), (0.33, -1, 0.2),
                                                      (0.67, 1, 0.2), (0.67, -1, 0.2), (0.5, 1, 0.35), (0.5, -1, 0.35)}))
+
+    def test_a_side_point_with_no_road_is_not_a_failure(self):
+        north = fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3.4, detour=True)
+        self.sides = {35.4: north}
+        with mock.patch("trips.osrm.via", side_effect=lambda o, t, d: self.side(o, t, d) if t[0] > 35 else (_ for _ in ()).throw(NoRoute("sea"))):
+            found = find((35.0, -100.0), (35.0, -96.5))
+        self.assertEqual(len(found.routes), 2)
+        self.assertEqual(found.missed, 0)
 
     def test_a_later_round_stops_once_three_are_in_hand(self):
         north = fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3.4, detour=True)
         south = fake_route(east_west_line(34.6, -100.0, 200), 3600 * 3.2, detour=True)
         self.sides = {35.4: north, 34.6: south}
-        with mock.patch("trips.osrm.beside", side_effect=lambda o, d, f, s, offset: (35.0 + 0.4 * s, -99.0)), \
-                mock.patch("trips.osrm.via", wraps=self.side) as via_:
+        with mock.patch("trips.osrm.via", wraps=self.side) as via_:
             find((35.0, -100.0), (35.0, -96.5))
-        self.assertEqual(via_.call_count, 2)
+        self.assertEqual(via_.call_count, 4)  # two side points, each routed again through its own road
 
     def test_three_offered_routes_need_no_side_points(self):
         self.offered = [fake_route(east_west_line(35.0 + k * 0.3, -100.0, 200), 3600 * (3 + k)) for k in range(3)]
         with mock.patch("trips.osrm.via", side_effect=RoutingError("unused")) as via_:
-            routes = find((35.0, -100.0), (35.0, -96.5))
-        self.assertEqual(len(routes), 3)
+            found = find((35.0, -100.0), (35.0, -96.5))
+        self.assertEqual(len(found.routes), 3)
         self.assertEqual(via_.call_count, 2)  # the first pair goes out regardless; the second does not
 
     def test_no_route_from_the_main_request_propagates(self):

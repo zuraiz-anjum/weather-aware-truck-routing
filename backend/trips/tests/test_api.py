@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 from trips.geocoding import GeocodingError, Place, PlaceNotFound
-from trips.osrm import NoRoute, RoutingError
+from trips.osrm import Found, NoRoute, RoutingError
 from trips.views import PlanThrottle
 from trips.weather import WeatherBusy, WeatherError
 
@@ -18,7 +18,7 @@ class PlanViewTests(CacheTestCase):
     def setUp(self):
         super().setUp()
         self.routes = [fake_route(east_west_line(35.0 + k * 0.4, -100.0, 200), (3 + k) * 3600) for k in range(3)]
-        mock.patch("trips.osrm.find", return_value=self.routes).start()
+        mock.patch("trips.osrm.find", return_value=Found(self.routes, 0)).start()
         mock.patch("trips.weather.forecast", side_effect=fake_forecast()).start()
         self.locate = mock.patch("trips.geocoding.locate", side_effect=self.lookup).start()
         self.addCleanup(mock.patch.stopall)
@@ -71,7 +71,7 @@ class PlanViewTests(CacheTestCase):
             ({"load_lb": 250000}, "load_lb: Ensure this value is less than or equal to 200000."),
             ({"interval_miles": 15}, 'interval_miles: "15" is not a valid choice.'),
             ({"departure": soon(-3).isoformat()}, "departure: the departure is in the past"),
-            ({"departure": (soon() + timedelta(days=14)).isoformat()}, "departure: the departure is more than 13 days away"),
+            ({"departure": (soon() + timedelta(days=13)).isoformat()}, "departure: the departure is too far ahead; the latest is "),
             ({"origin": {"lat": 35.0}}, "origin: give both lat and lon, or neither"),
             ({"origin": {"text": "  "}}, "origin: give a place name or coordinates"),
             ({"departure": "yesterday"}, "departure: Datetime has wrong format"),
@@ -113,11 +113,11 @@ class PlanViewTests(CacheTestCase):
                 self.assertEqual(response.json(), {"detail": str(error)})
 
     def test_a_busy_weather_service_is_503_with_a_retry_hint(self):
-        with mock.patch("trips.weather.forecast", side_effect=WeatherBusy("try again in a minute")):
+        with mock.patch("trips.weather.forecast", side_effect=WeatherBusy("try again in an hour", 3600)):
             response = self.post()
         self.assertEqual(response.status_code, 503)
-        self.assertEqual(response["Retry-After"], "60")
-        self.assertEqual(response.json(), {"detail": "try again in a minute"})
+        self.assertEqual(response["Retry-After"], "3600")
+        self.assertEqual(response.json(), {"detail": "try again in an hour"})
 
     def test_get_is_not_allowed_but_renders_in_a_browser(self):
         response = self.client.get("/api/plan/", HTTP_ACCEPT="text/html")

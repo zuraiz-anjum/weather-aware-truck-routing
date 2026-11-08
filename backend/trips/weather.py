@@ -43,7 +43,22 @@ class WeatherError(Exception):
 
 
 class WeatherBusy(WeatherError):
-    """Open-Meteo's free allowance for the minute is spent; a retry will do."""
+    """Open-Meteo's free allowance is spent for the minute, the hour or the day; a later retry will do."""
+
+    def __init__(self, message, retry_after):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
+# Open-Meteo's refusals name the allowance that ran out.
+ALLOWANCES = (("daily", 24 * 3600, "the day", "tomorrow"), ("hourly", 3600, "the hour", "in an hour"), ("minutely", 60, "the minute", "in a minute"))
+
+
+def busy(reason):
+    for word, seconds, span, when in ALLOWANCES:
+        if word in reason.lower():
+            break
+    return WeatherBusy(f"the weather service's free allowance for {span} is spent; try again {when}", seconds)
 
 
 @dataclass
@@ -115,7 +130,7 @@ def _fetch(points, start, end):
     if isinstance(body, dict) and body.get("error"):
         reason = body.get("reason", "no reason given")
         if "limit" in reason.lower():
-            raise WeatherBusy("the weather service has had its fill of requests for the moment; try again in a minute")
+            raise busy(reason)
         raise WeatherError("the weather service refused the request: %s" % reason)
     if isinstance(body, dict):
         body = [body]  # a single point comes back bare

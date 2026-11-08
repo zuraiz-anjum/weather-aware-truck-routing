@@ -6,6 +6,7 @@ the last one. Each checkpoint stands for the stretch of road from it to the
 next, which is what turns a risk level into miles of road at that level.
 """
 
+import math
 from dataclasses import dataclass
 
 from .geometry import interpolate
@@ -31,9 +32,9 @@ class Checkpoint:
 
 
 def choose_interval(requested, longest_miles):
-    """The requested spacing, or the next coarser one that keeps a route under MAX_PER_ROUTE."""
+    """The requested spacing, or the next coarser one that keeps a route within MAX_PER_ROUTE checkpoints."""
     for interval in INTERVALS:
-        if interval >= requested and longest_miles / interval <= MAX_PER_ROUTE:
+        if interval >= requested and math.ceil(longest_miles / interval) + 1 <= MAX_PER_ROUTE:
             return interval
     return INTERVALS[-1]
 

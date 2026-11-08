@@ -65,7 +65,7 @@ def exception_handler(exc, context):
     if isinstance(exc, UNPLANNABLE):
         return Response({"detail": str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
     if isinstance(exc, weather.WeatherBusy):
-        return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE, headers={"Retry-After": "60"})
+        return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE, headers={"Retry-After": str(exc.retry_after)})
     if isinstance(exc, UPSTREAM):
         log.warning("upstream failure: %s", exc, exc_info=exc.__cause__)
         return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
