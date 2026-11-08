@@ -1,0 +1,226 @@
+# Weather-Aware Truck Routing
+
+A React and Django web app for a dispatcher planning a truck's run. Give it
+an origin, a destination, a departure time and the load, and it comes back
+with three road routes, the weather each one meets at the hour the truck
+gets there, a risk level for every stretch, a recommendation, and a heatmap
+of the corridor that can be slid through the next forty-eight hours.
+
+Hosted at https://weather-aware-truck-routing.onrender.com (a free Render
+service; the first request after a quiet spell can take half a minute while
+it wakes). Everything else is in this repository: `backend/` is the Django
+project, `frontend/` the React app, and the `Dockerfile` builds both into
+one image.
+
+## Running it on your own machine
+
+You need Python 3.12 or newer, Node 20 or newer, and an internet connection:
+the app talks to three public services (routing, weather, place names) that
+need no keys.
+
+Backend, in one terminal:
+
+```
+cd backend
+python -m venv .venv
+.venv\Scripts\activate          # macOS and Linux: source .venv/bin/activate
+pip install -r requirements.txt
+python manage.py test           # 119 tests, no network needed
+python manage.py runserver
+```
+
+Frontend, in another:
+
+```
+cd frontend
+npm ci
+npm test                        # 23 tests
+npm run dev
+```
+
+Open http://localhost:5173. Vite serves the React app and proxies `/api` to
+Django on port 8000. There is no database and nothing to migrate.
+
+Or build the image and run the whole thing from one container:
+
+```
+docker build -t truckweather .
+docker run --rm -p 8000:8000 -e DJANGO_SECRET_KEY=$(openssl rand -hex 32) truckweather
+```
+
+and open http://localhost:8000. Django serves the built React app from the
+same process.
+
+## What it does, in order
+
+**Places.** The two boxes suggest places as you type, from Photon (komoot's
+geocoder over OpenStreetMap), limited to the United States. A name typed
+without picking a suggestion is looked up the same way when you plan.
+
+**Three routes.** One request to OSRM, the public OpenStreetMap router,
+asks for alternatives and for every step of each route: the geometry, how
+long the step takes, and what road it is on. OSRM usually offers one or two
+routes. For the rest, the planner routes through a point a fifth of the way
+off to one side of the straight line between the ends, first at the middle
+and then a third of the way from each end, and keeps a candidate when less
+than 85% of it runs within a mile of a route already in hand and it is no
+more than 1.4 times slower than the quickest. Routes found this way are
+marked as such in the response and the card. Between some places there are
+honestly fewer than three distinct roads, and the app says so.
+
+**Checkpoints and ETAs.** Checkpoints sit every 10, 25 or 50 miles along
+each route, with the destination as the last. The spacing follows the trip
+length unless you choose one; very long trips are coarsened so that a route
+has at most 150 checkpoints. The time of arrival at each comes from OSRM's
+per-step driving times, interpolated by distance within a step, added to
+the departure. Each checkpoint stands for the stretch of road from it to the
+next, which is how a level becomes miles.
+
+**Weather.** Open-Meteo gives hourly wind at 10 m in mph and rain and snow
+in inches for the hour, for up to a hundred points per request, so the
+checkpoints of all three routes and the cells of the heatmap go out in a
+few parallel requests. At a checkpoint, wind is read between the two
+surrounding hours and rain and snow are the totals for the hour the truck is
+passing through.
+
+**Risk.** The thresholds from the brief, applied to every checkpoint and
+every heatmap cell:
+
+| Condition | Low | Moderate | High | Severe | No Travel |
+|---|---|---|---|---|---|
+| Wind | < 25 mph | 25–34 | 35–44 | 45–54 | ≥ 55 mph |
+| Rain | < 0.10 in/h | 0.10–0.25 | 0.25–0.50 | 0.50–1.00 | > 1.00 |
+| Snow | < 0.5 in/h | 0.5–1.0 | 1.0–2.0 | 2.0–3.0 | > 3.0 |
+
+Each band owns its lower bound, so 35 mph is High and 0.25 in/h is High;
+the top band follows the brief's own signs (wind from 55 mph, rain over
+1.00, snow over 3.0). The worst of the three factors is the level. The load
+rules then apply to wind: 55 mph or more is No Travel for any load, 45–54
+mph with more than 30,000 lb is No Travel, and 35–44 mph with more than
+40,000 lb is Severe. When a load rule has changed a checkpoint's level the
+API says which one, and the table marks the row.
+
+**Recommendation.** Routes are ordered by fewest miles rated No Travel,
+then fewest Severe, fewest High, lowest average risk (a mile-weighted mean
+of the levels, 0 to 4), then shortest driving time. The brief lists the last
+four; No Travel miles go first because a route with any is not one the
+truck can take, and ranking it above a route with a few Severe miles would
+be absurd. The recommended route's card says why it beat the quickest one
+("40 min slower than Route B, but fewer miles rated High"), since that is
+the trade a dispatcher is weighing.
+
+**Heatmap.** The corridor is a lattice of latitude and longitude cells, a
+band of three along every route, sized so a trip is about thirty cells
+long. Each cell carries its risk level at every hour of the slider,
+computed once on the server with the same rules and the same load. Moving
+the slider only swaps a paint expression on the GPU, so it is instant, and
+the truck markers move to where each route has the truck at that hour.
+Calm cells are a faint wash; trouble is solid.
+
+## The API
+
+`POST /api/plan/` with a JSON body:
+
+```json
+{
+  "origin": {"text": "Amarillo, Texas", "lat": 35.207, "lon": -101.834},
+  "destination": {"text": "Oklahoma City"},
+  "departure": "2026-11-12T14:00:00Z",
+  "load_lb": 36000,
+  "interval_miles": 25
+}
+```
+
+`lat` and `lon` are optional (text alone is geocoded), `interval_miles` is
+optional and one of 10, 25 or 50, and the departure may be up to an hour in
+the past or fourteen days ahead. The answer holds the two places as
+resolved, `routes` ranked best first (each with its name, distance,
+driving time, arrival, GeoJSON geometry, checkpoints with ETA, weather,
+levels and any load rule, and a summary with miles by level, average risk,
+rank and reason), `heatmap` as a GeoJSON FeatureCollection of cells with a
+`levels` array per hour, and `notes` for anything worth saying, such as
+only two routes existing.
+
+`GET /api/places/?q=den` returns up to six matching places in the United
+States. `GET /api/health/` answers `{"status": "ok"}` without touching any
+outside service.
+
+Errors are `{"detail": "..."}`: 400 for a bad request (with the field errors
+under `errors`), 422 when a plan cannot be made (no road between the places,
+an unknown place, the two places being the same, or a trip running past
+the sixteen-day forecast), 502 when one of the outside services fails, 503
+with `Retry-After` when Open-Meteo's free allowance for the minute is spent,
+and 429 past 20 plans a minute from one address.
+
+## Things worth knowing
+
+- Driving times are OSRM's, for a car, with no stops. A real run has hours
+  of service and slower truck speeds, which would push the later ETAs
+  later; the model is the brief's, and the checkpoint times are consistent
+  with the route times shown.
+- Open-Meteo's free tier counts each point of a request against six
+  hundred a minute. A plan uses one point per checkpoint and per heatmap
+  cell, so the heatmap is kept to two hundred cells and a route to a
+  hundred and fifty checkpoints, forecasts are cached for half an hour in
+  windows aligned to the departure day, and routes for a pair of places for
+  a day. Two or three fresh plans in one minute are fine; a burst gets a
+  503 asking for a minute's patience.
+- Routes are cached without regard to the load, since OSRM routes a car:
+  the load only enters the risk rules.
+- Wind is sustained wind at 10 m. Gusts are higher; the brief's thresholds
+  are for wind, so that is what is used.
+- The map is MapLibre GL over OpenFreeMap's vector tiles, which need no key.
+- There are no accounts and no database. Everything the app knows it is
+  told in the request or fetches for it.
+
+## Deploying
+
+`render.yaml` describes one free Docker web service on Render: connect the
+repository as a Blueprint and it builds from the `Dockerfile`, generates
+`DJANGO_SECRET_KEY`, and checks `/api/health/`. Free services sleep after
+fifteen idle minutes; the `keep-warm` workflow in `.github/workflows` pings
+the service every ten minutes once the repository variable `APP_URL` is set
+to its address.
+
+The image runs anywhere Docker does. It needs `DJANGO_SECRET_KEY`, honours
+`PORT`, and takes `DJANGO_ALLOWED_HOSTS`, `NUM_PROXIES` (1 behind a proxy
+that sets `X-Forwarded-For`), `CACHE_DIR`, and `OSRM_URL`, `OPEN_METEO_URL`
+and `PHOTON_URL` for self-hosted copies of the services.
+
+## Tests and checks
+
+`python manage.py test` runs the backend's 119 tests: the risk table at
+every boundary, checkpoint placement, the heatmap lattice, the polyline
+decoder against the format's reference, the OSRM stitching and side-route
+logic, Open-Meteo chunking and caching, the planner's ranking, and the API
+end to end with the services stubbed. `npm test` runs the frontend's 23:
+time and distance helpers, the form's validation and payload, the place
+suggestions, the route cards, and the app's planning flow with the map
+stubbed out, since jsdom has no WebGL. CI runs both, type-checks and lints
+the frontend, builds the image, starts it, and checks that it serves the
+API and the page.
+
+## Layout
+
+```
+backend/
+  truckweather/      settings, urls, wsgi
+  trips/
+    risk.py          the thresholds and load rules
+    osrm.py          routes, and side routes when OSRM offers fewer than three
+    weather.py       Open-Meteo in chunks, with the hour-reading rules
+    geocoding.py     Photon suggestions and lookups
+    checkpoints.py   where along a route, and when
+    corridor.py      the heatmap lattice
+    planner.py       the plan: assessment, ranking, heatmap levels
+    geometry.py      distances, positions, thinning, overlap
+    polyline.py      OSRM's encoded geometry
+    views.py, serializers.py, urls.py
+    tests/
+frontend/src/
+  App.tsx            state and layout
+  components/        TripForm, PlaceInput, RouteCards, CheckpointTable,
+                     HourSlider, Legend, RouteMap (MapLibre)
+  api.ts, types.ts, risk.ts, time.ts, progress.ts
+Dockerfile, render.yaml, .github/workflows/
+```
