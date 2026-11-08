@@ -1,0 +1,486 @@
+:root {
+  --ink: #1d2430;
+  --muted: #6b7280;
+  --line: #d9dee5;
+  --paper: #ffffff;
+  --panel: #f7f8fa;
+  --accent: #1f3a5f;
+  --danger: #b42318;
+  font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--paper);
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 420px minmax(0, 1fr);
+  height: 100%;
+}
+
+.panel {
+  overflow-y: auto;
+  border-right: 1px solid var(--line);
+  padding: 16px 18px 24px;
+}
+
+.panel > * + * {
+  margin-top: 16px;
+}
+
+.panel header h1 {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.panel header p {
+  margin-top: 4px;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 12px;
+}
+
+.sep {
+  margin: 0 6px;
+  color: var(--muted);
+}
+
+/* Form */
+
+.trip-form > * + * {
+  margin-top: 10px;
+}
+
+.field label {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 3px;
+}
+
+.field input,
+.field select {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--paper);
+}
+
+.field input:focus,
+.field select:focus,
+button:focus-visible,
+input[type="range"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.hint {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 2px;
+  min-height: 14px;
+}
+
+.place-field {
+  position: relative;
+}
+
+.suggestions {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-top: none;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.suggestions li {
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.suggestions li.active,
+.suggestions li:hover {
+  background: #e9eef5;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 6px 12px;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+button.primary {
+  width: 100%;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  padding: 8px 12px;
+}
+
+button.link {
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.swap {
+  margin-top: -4px !important;
+  font-size: 12px;
+}
+
+.problem {
+  color: var(--danger);
+  border: 1px solid #f1b9b4;
+  background: #fdf3f2;
+  padding: 8px 10px;
+  border-radius: 3px;
+}
+
+.note {
+  border-left: 3px solid var(--line);
+  padding: 2px 10px;
+  color: var(--muted);
+}
+
+/* Routes */
+
+.routes > * + * {
+  margin-top: 8px;
+}
+
+.route-card {
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 10px 12px;
+  cursor: pointer;
+}
+
+.route-card.selected {
+  border-color: var(--accent);
+  background: var(--panel);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.route-card h3 {
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.route-card h3 button {
+  border: none;
+  background: none;
+  padding: 0;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.route-name {
+  font-weight: 400;
+  color: var(--muted);
+}
+
+.tag {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #146c43;
+  border: 1px solid #a6d9bd;
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+
+.rank {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.facts {
+  margin-top: 4px;
+}
+
+.risk-bar {
+  display: flex;
+  height: 6px;
+  margin: 8px 0 6px;
+  background: #e5e7eb;
+  overflow: hidden;
+}
+
+.risk-bar span {
+  display: block;
+  height: 100%;
+}
+
+.reason {
+  margin-top: 6px;
+}
+
+/* Checkpoints */
+
+.checkpoints h3 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.checkpoints h3 .muted {
+  font-weight: 400;
+}
+
+.checkpoints table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.checkpoints th,
+.checkpoints td {
+  text-align: left;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.checkpoints th {
+  font-weight: 600;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.checkpoints th small {
+  font-weight: 400;
+}
+
+.checkpoints .num {
+  text-align: right;
+}
+
+.chip {
+  display: inline-block;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+/* Map */
+
+.map-area {
+  position: relative;
+  min-height: 0;
+}
+
+.map {
+  position: absolute;
+  inset: 0;
+}
+
+.map-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--panel);
+}
+
+/* Sits above the map's attribution line rather than on it. */
+.map-controls {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 30px;
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+
+.hour-slider {
+  flex: 1 1 360px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 8px 12px;
+}
+
+.hour-slider button {
+  width: 64px;
+}
+
+.hour-slider-body {
+  flex: 1;
+}
+
+.hour-slider label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.hour-slider input[type="range"] {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.legend {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin: 0;
+  padding: 8px 12px;
+  list-style: none;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 12px;
+}
+
+.legend .swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-right: 5px;
+  vertical-align: -2px;
+}
+
+.map-busy {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.truck {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #9aa4b2;
+  color: #fff;
+  border: 2px solid #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+  cursor: pointer;
+}
+
+.truck.selected {
+  background: var(--accent);
+  width: 26px;
+  height: 26px;
+  line-height: 22px;
+  font-size: 12px;
+}
+
+.truck.arrived {
+  opacity: 0.55;
+}
+
+.end {
+  background: var(--ink);
+  color: #fff;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+
+.maplibregl-popup-content {
+  font: 12px/1.4 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  padding: 8px 10px;
+  border-radius: 3px;
+}
+
+@media (max-width: 900px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: 55vh minmax(0, 1fr);
+  }
+
+  .map-area {
+    order: -1;
+  }
+
+  .panel {
+    border-right: none;
+    border-top: 1px solid var(--line);
+  }
+
+  .legend {
+    display: none;
+  }
+
+  .hour-slider .muted {
+    display: none;
+  }
+}
