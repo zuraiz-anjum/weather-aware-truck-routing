@@ -512,6 +512,22 @@ button.link {
     border-top: 1px solid var(--line);
   }
 
+  /* One compact strip, so the map keeps most of the height. */
+  .map-controls {
+    bottom: 22px;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .hour-slider {
+    padding: 6px 10px;
+  }
+
+  .legend {
+    max-width: none;
+    padding: 4px 10px;
+  }
+
   .legend p,
   .hour-slider .muted {
     display: none;

@@ -6,11 +6,11 @@ with three road routes, the weather each one meets at the hour the truck
 gets there, a risk level for every stretch, a recommendation, and a heatmap
 of the corridor that can be slid through the next forty-eight hours.
 
-Hosted at https://weather-aware-truck-routing.onrender.com (a free Render
-service; the first request after a quiet spell can take half a minute while
-it wakes). Everything else is in this repository: `backend/` is the Django
-project, `frontend/` the React app, and the `Dockerfile` builds both into
-one image.
+The hosted copy runs on a free Render service at
+https://weather-aware-truck-routing.onrender.com; the first request after a
+quiet spell can take half a minute while it wakes. Everything else is in
+this repository: `backend/` is the Django project, `frontend/` the React
+app, and the `Dockerfile` builds both into one image.
 
 ## Running it on your own machine
 
@@ -25,7 +25,7 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate          # macOS and Linux: source .venv/bin/activate
 pip install -r requirements.txt
-python manage.py test           # 119 tests, no network needed
+python manage.py test           # 142 tests, no network needed
 python manage.py runserver
 ```
 
@@ -34,7 +34,7 @@ Frontend, in another:
 ```
 cd frontend
 npm ci
-npm test                        # 23 tests
+npm test                        # 26 tests
 npm run dev
 ```
 
@@ -63,11 +63,19 @@ long the step takes, and what road it is on. OSRM usually offers one or two
 routes. For the rest, the planner routes through a point off to one side
 of the straight line between the ends: a fifth of the way out at the
 middle, then a third of the way from each end, then further out at the
-middle again, and keeps a candidate when less than 85% of it runs within a
-mile of a route already in hand and it is no more than one and a half
-times slower than the quickest. Routes found this way are marked as such
-in the response and the card. Between some places there are honestly fewer
-than three distinct roads, and the app says so.
+middle again. Such a point is an arbitrary spot the road has to leave and
+come back to, so a candidate whose new road gets somewhere is routed once
+more through a point on that new road itself, which gives the road
+without the excursion (Phoenix to Tucson by AZ-79 comes out at 1.36 times
+the interstate's time this way rather than 2.1). A candidate is kept when
+its longest stretch of new road is at least ten miles long with its ends
+at least 40% of that apart (an out-and-back is a spur, not a route), less
+than 85% of it runs within a mile of a route already in hand, and it is no
+more than 1.6 times slower than the quickest. Routes found this way are
+marked as such in the response and the card. Between some places there are
+honestly fewer than three distinct roads, and the app says so; when a
+routing request failed along the way it says that instead, and keeps the
+short set for ten minutes rather than a day.
 
 **Checkpoints and ETAs.** Checkpoints sit every 10, 25 or 50 miles along
 each route, with the destination as the last. The spacing follows the trip
@@ -144,8 +152,9 @@ wash; trouble is solid.
 
 `lat` and `lon` are optional (text alone is geocoded), `interval_miles` is
 optional and one of 10, 25 or 50, and the departure may be up to an hour in
-the past or thirteen days ahead, which with the two days of slider after it
-is what Open-Meteo's sixteen-day forecast allows. The answer holds the two
+the past or thirteen days less an hour ahead, which with the two days of
+slider after it is what Open-Meteo's sixteen-day forecast allows at any
+time of day. The answer holds the two
 places as resolved, `routes` ranked best first (each with its name,
 distance, driving time, arrival, GeoJSON geometry, checkpoints with ETA,
 weather, levels and any load rule, and a summary with miles by level,
@@ -163,7 +172,8 @@ under `errors`), 422 when a plan cannot be made (no road between the places,
 an unknown place, the two places being the same, or a trip running past
 the sixteen-day forecast), 502 when one of the outside services fails, 503
 with `Retry-After` when Open-Meteo's free allowance for the minute is spent,
-and 429 past 20 plans a minute from one address.
+and 429 past 20 plans a minute from one address (rejected requests count
+too).
 
 ## Things worth knowing
 
@@ -172,14 +182,16 @@ and 429 past 20 plans a minute from one address.
   later; the model is the brief's, and the checkpoint times are consistent
   with the route times shown.
 - Open-Meteo's free tier counts each point of a request against six
-  hundred a minute. A plan uses one point per checkpoint and per heatmap
-  cell, so the heatmap is kept to two hundred cells and a route to a
-  hundred checkpoints, and forecasts are cached for half an hour in
-  windows that run from midnight of the departure day to a midnight at
-  least three days on, so that every departure on the same day for the
-  same trip is one fetch; routes for a pair of places are kept for a day.
-  Two or three fresh plans in one minute are fine; a burst gets a 503
-  asking for a minute's patience.
+  hundred a minute, five thousand an hour and ten thousand a day. A plan
+  uses one point per distinct checkpoint and heatmap cell, so the heatmap
+  is kept to two hundred cells and a route to a hundred checkpoints, and
+  forecasts are cached for half an hour in windows that run from midnight
+  of the departure day to the first midnight after the trip and the
+  slider, and at least three days, so that departures on the same day for
+  the same trip usually share one fetch; routes for a pair of places are
+  kept for a day. Two or three fresh plans in one minute are fine, and a
+  few dozen a day; past an allowance the API answers 503 with a
+  `Retry-After` and says whether to wait a minute, an hour or a day.
 - An hour the model has no value for refuses the plan rather than reading
   as calm. Inside the sixteen-day horizon it does not happen.
 - Routes are cached without regard to the load, since OSRM routes a car:
@@ -207,11 +219,12 @@ self-hosted copies of the services.
 
 ## Tests and checks
 
-`python manage.py test` runs the backend's 126 tests: the risk table at
+`python manage.py test` runs the backend's 142 tests: the risk table at
 every boundary, checkpoint placement, the heatmap lattice, the polyline
-decoder against the format's reference, the OSRM stitching and side-route
-logic, Open-Meteo windows, chunking and caching, the planner's ranking,
-and the API end to end with the services stubbed. Three more run against
+decoder against the format's reference, the OSRM stitching, the side-route
+search with its spur rule and second routing, Open-Meteo windows, chunking
+and caching, the planner's ranking, and the API end to end with the
+services stubbed. Three more run against
 the real services when `LIVE_SERVICES=1` is set: the forecast window at
 both ends of the allowed range, and a short trip through the whole
 planner. They exist because the stubs can only check what the code

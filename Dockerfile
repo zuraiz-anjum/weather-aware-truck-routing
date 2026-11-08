@@ -26,6 +26,8 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
     CMD python -c "import os, urllib.request; urllib.request.urlopen('http://127.0.0.1:%s/api/health/' % os.environ.get('PORT', '8000'))"
 # Threads rather than more workers: a request spends its time waiting on the
-# routing and weather services, not computing. The timeout outlasts the
-# worst case of every outside request running to its own limit.
+# routing and weather services, not computing. With threaded workers the
+# timeout is a heartbeat between the arbiter and the worker, not a cap on
+# one request; it is generous so a worker busy with slow services is not
+# taken for a hung one.
 CMD ["sh", "-c", "exec gunicorn truckweather.wsgi --bind 0.0.0.0:${PORT:-8000} --workers 2 --threads 8 --timeout 120"]

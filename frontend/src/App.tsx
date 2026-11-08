@@ -54,7 +54,7 @@ export default function App() {
         {error && (
           <p className="problem" role="alert">
             {error}
-            {stale && ' The plan below is the previous one.'}
+            {stale && `${error.endsWith('.') ? '' : '.'} The plan below is the previous one.`}
           </p>
         )}
         {plan && (
@@ -72,7 +72,8 @@ export default function App() {
             {route && <CheckpointTable route={route} />}
             <p className="small muted">
               Times are local to this browser. Driving times come from the routing engine and assume no stops.
-              Wind is sustained wind at 10 m; rain and snow are hourly totals for the hour ahead.
+              Wind is sustained wind at 10 m; rain and snow are hourly totals for the hour ahead. Heatmap cells
+              are rated at the slider hour; checkpoint dots when the truck gets there.
             </p>
           </div>
         )}

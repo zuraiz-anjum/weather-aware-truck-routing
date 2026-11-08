@@ -159,11 +159,11 @@ function truckElement(id: string): HTMLElement {
   return element
 }
 
-// "Amarillo" on the map, the whole label on hover.
+// "Amarillo" on the map, the whole label on hover; a pair of coordinates stays whole.
 function endElement(label: string): HTMLElement {
   const element = document.createElement('div')
   element.className = 'end'
-  element.textContent = label.split(',')[0]
+  element.textContent = /^-?\d/.test(label) ? label : label.split(',')[0]
   element.title = label
   return element
 }
