@@ -63,4 +63,24 @@ describe('App', () => {
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('no road route between those places'))
     expect(screen.queryByText('Recommended')).toBeNull()
   })
+
+  it('names the places as resolved and shows the warning when nothing is clear to drive', async () => {
+    vi.mocked(planTrip).mockResolvedValue(plan({ warning: 'No route is clear to drive at this departure.' }))
+    render(<App />)
+    ask()
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Amarillo, Texas to Oklahoma City, Oklahoma'))
+    expect(screen.getByText('No route is clear to drive at this departure.')).toBeTruthy()
+  })
+
+  it('marks the previous plan as stale when a new attempt fails', async () => {
+    vi.mocked(planTrip).mockResolvedValueOnce(plan())
+    render(<App />)
+    ask()
+    await waitFor(() => expect(screen.getByText('Recommended')).toBeTruthy())
+    vi.mocked(planTrip).mockImplementation(() => Promise.reject(new ApiError(503, 'try again in a minute')))
+    ask()
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('try again in a minute'))
+    expect(screen.getByRole('alert').textContent).toContain('The plan below is the previous one.')
+    expect(document.querySelector('.results.stale')).toBeTruthy()
+  })
 })

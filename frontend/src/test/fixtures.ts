@@ -61,6 +61,7 @@ export function plan(overrides: Partial<Plan> = {}): Plan {
     interval_miles: 25,
     slider_hours: 48,
     notes: [],
+    warning: null,
     routes: [
       route('A'),
       route('B', {

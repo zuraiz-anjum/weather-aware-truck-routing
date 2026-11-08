@@ -30,7 +30,6 @@ class AssessTests(SimpleTestCase):
     def test_the_worst_factor_decides(self):
         a = assess(wind_mph=10, rain_inches_per_hour=0.3, snow_inches_per_hour=0, load_lb=10_000)
         self.assertEqual((a.level, a.wind, a.rain, a.snow), (HIGH, LOW, HIGH, LOW))
-        self.assertEqual(a.name, "High")
         self.assertIsNone(a.load_rule)
 
     def test_fifty_five_mph_is_no_travel_for_any_load(self):

@@ -159,10 +159,12 @@ function truckElement(id: string): HTMLElement {
   return element
 }
 
-function endElement(text: string): HTMLElement {
+// "Amarillo" on the map, the whole label on hover.
+function endElement(label: string): HTMLElement {
   const element = document.createElement('div')
   element.className = 'end'
-  element.textContent = text
+  element.textContent = label.split(',')[0]
+  element.title = label
   return element
 }
 
@@ -252,8 +254,8 @@ export default function RouteMap({ plan, selected, hour, onSelect }: Props) {
       trucks.current.set(route.id, marker.addTo(instance))
     }
     ends.current = [
-      new Marker({ element: endElement('Start'), anchor: 'bottom', offset: [0, -4] }).setLngLat([plan.origin.lon, plan.origin.lat]).addTo(instance),
-      new Marker({ element: endElement('End'), anchor: 'bottom', offset: [0, -4] }).setLngLat([plan.destination.lon, plan.destination.lat]).addTo(instance),
+      new Marker({ element: endElement(plan.origin.label), anchor: 'bottom', offset: [0, -4] }).setLngLat([plan.origin.lon, plan.origin.lat]).addTo(instance),
+      new Marker({ element: endElement(plan.destination.label), anchor: 'bottom', offset: [0, -4] }).setLngLat([plan.destination.lon, plan.destination.lat]).addTo(instance),
     ]
     instance.fitBounds(bounds(plan), { padding: { top: 48, right: 48, bottom: 120, left: 48 }, duration: 700, maxZoom: 11 })
   }, [plan, ready])

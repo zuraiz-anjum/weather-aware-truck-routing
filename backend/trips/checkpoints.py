@@ -12,10 +12,10 @@ from .geometry import interpolate
 
 INTERVALS = (10, 25, 50)
 
-# More checkpoints than this on one route means thousands of forecast points
-# for a coast-to-coast trip and no more information, since the forecast grid
-# is coarser than the spacing anyway.
-MAX_PER_ROUTE = 150
+# Every checkpoint is a point in the forecast request, which Open-Meteo
+# counts against a free allowance of six hundred a minute; three routes of a
+# hundred leave room for the heatmap and for the next person.
+MAX_PER_ROUTE = 100
 
 # A marker this close to the destination is the destination.
 MERGE_MILES = 1.0

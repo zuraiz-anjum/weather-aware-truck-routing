@@ -9,6 +9,8 @@ interface Props {
 }
 
 export const MAX_LOAD_LB = 200_000
+// What the server accepts: up to an hour back, up to thirteen days ahead.
+const DAYS_AHEAD = 13
 
 function asRequest(value: PlaceValue): PlaceRequest {
   return value.place
@@ -20,6 +22,10 @@ export default function TripForm({ onSubmit, busy }: Props) {
   const [origin, setOrigin] = useState<PlaceValue>({ text: '' })
   const [destination, setDestination] = useState<PlaceValue>({ text: '' })
   const [departure, setDeparture] = useState(() => toInputValue(nextWholeHour()))
+  const [bounds] = useState(() => {
+    const now = new Date()
+    return { min: toInputValue(now), max: toInputValue(new Date(now.getTime() + DAYS_AHEAD * 86_400_000)) }
+  })
   const [load, setLoad] = useState('20000')
   const [interval, setInterval] = useState('auto')
   const [problem, setProblem] = useState<string | null>(null)
@@ -65,6 +71,8 @@ export default function TripForm({ onSubmit, busy }: Props) {
             id="departure"
             type="datetime-local"
             step={60}
+            min={bounds.min}
+            max={bounds.max}
             value={departure}
             onChange={(event) => setDeparture(event.target.value)}
           />

@@ -52,6 +52,7 @@ class PlanViewTests(CacheTestCase):
         self.assertEqual(plan["origin"]["label"], "Start, Texas")
         self.assertEqual(plan["destination"], {"label": "End, Texas", "lat": 35.0, "lon": -96.5})
         self.assertEqual(plan["load_lb"], 20000)
+        self.assertIsNone(plan["warning"])
         self.assertEqual(plan["heatmap"]["type"], "FeatureCollection")
         self.locate.assert_called_once_with("start")
 
@@ -70,7 +71,7 @@ class PlanViewTests(CacheTestCase):
             ({"load_lb": 250000}, "load_lb: Ensure this value is less than or equal to 200000."),
             ({"interval_miles": 15}, 'interval_miles: "15" is not a valid choice.'),
             ({"departure": soon(-3).isoformat()}, "departure: the departure is in the past"),
-            ({"departure": (soon() + timedelta(days=15)).isoformat()}, "departure: the departure is more than 14 days away"),
+            ({"departure": (soon() + timedelta(days=14)).isoformat()}, "departure: the departure is more than 13 days away"),
             ({"origin": {"lat": 35.0}}, "origin: give both lat and lon, or neither"),
             ({"origin": {"text": "  "}}, "origin: give a place name or coordinates"),
             ({"departure": "yesterday"}, "departure: Datetime has wrong format"),

@@ -45,7 +45,8 @@ class IntervalTests(SimpleTestCase):
 
     def test_coarsened_for_very_long_routes(self):
         self.assertEqual(choose_interval(10, 10 * MAX_PER_ROUTE + 1), 25)
-        self.assertEqual(choose_interval(10, 2800), 25)
+        self.assertEqual(choose_interval(10, 2800), 50)
+        self.assertEqual(choose_interval(25, 2400), 25)
         self.assertEqual(choose_interval(25, 25 * MAX_PER_ROUTE + 1), 50)
         self.assertEqual(choose_interval(50, 10_000), 50)
 

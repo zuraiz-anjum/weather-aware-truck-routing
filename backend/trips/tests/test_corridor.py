@@ -26,11 +26,18 @@ class LatticeTests(SimpleTestCase):
         b = Polyline(east_west_line(35.0, -100.0, 100))
         self.assertEqual(len(lattice([a, b], 10.0)), len(lattice([a], 10.0)))
 
-    def test_cell_centre(self):
-        cell = lattice([Polyline(east_west_line(35.0, -100.0, 20))], 10.0)[0]
-        lat, lon = cell.centre
-        self.assertAlmostEqual(lat, (cell.south + cell.north) / 2)
-        self.assertAlmostEqual(lon, (cell.west + cell.east) / 2)
+    def test_cells_on_the_road_are_forecast_on_the_road_and_the_rest_at_their_centre(self):
+        cells = lattice([Polyline(east_west_line(35.0, -100.0, 100))], 10.0)
+        row = [c for c in cells if c.south <= 35.0 < c.north]
+        beside = [c for c in cells if not (c.south <= 35.0 < c.north)]
+        on_road = [c for c in row if c.point[0] == 35.0]
+        # The row the road runs along, less the band cell past each end.
+        self.assertEqual(len(row) - len(on_road), 2)
+        for cell in on_road:
+            self.assertTrue(cell.west <= cell.point[1] < cell.east)
+        for cell in beside + [c for c in row if c not in on_road]:
+            self.assertAlmostEqual(cell.point[0], (cell.south + cell.north) / 2)
+            self.assertAlmostEqual(cell.point[1], (cell.west + cell.east) / 2)
 
 
 class BuildTests(SimpleTestCase):

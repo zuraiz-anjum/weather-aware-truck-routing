@@ -76,6 +76,7 @@ export interface Plan {
   interval_miles: number
   slider_hours: number
   notes: string[]
+  warning: string | null
   routes: Route[]
   heatmap: Heatmap
 }

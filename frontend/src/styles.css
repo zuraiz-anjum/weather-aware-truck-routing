@@ -197,6 +197,32 @@ button.link {
   color: var(--muted);
 }
 
+.warning {
+  color: var(--danger);
+  border-left: 3px solid var(--danger);
+  padding: 2px 10px;
+  font-weight: 600;
+}
+
+.results > * + * {
+  margin-top: 12px;
+}
+
+.results h2 {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* Results left over from a plan that has since failed to be replaced. */
+.stale .results,
+.panel .stale {
+  opacity: 0.55;
+}
+
+.map-area.stale .maplibregl-canvas {
+  filter: grayscale(0.6);
+}
+
 /* Routes */
 
 .routes > * + * {
@@ -248,6 +274,11 @@ button.link {
   border: 1px solid #a6d9bd;
   border-radius: 3px;
   padding: 1px 6px;
+}
+
+.tag.danger {
+  color: var(--danger);
+  border-color: #f1b9b4;
 }
 
 .rank {
@@ -390,16 +421,21 @@ button.link {
 }
 
 .legend {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  margin: 0;
   padding: 8px 12px;
-  list-style: none;
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 3px;
   font-size: 12px;
+  max-width: 340px;
+}
+
+.legend ul {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 0 0 4px;
+  padding: 0;
+  list-style: none;
 }
 
 .legend .swatch {
@@ -476,10 +512,7 @@ button.link {
     border-top: 1px solid var(--line);
   }
 
-  .legend {
-    display: none;
-  }
-
+  .legend p,
   .hour-slider .muted {
     display: none;
   }

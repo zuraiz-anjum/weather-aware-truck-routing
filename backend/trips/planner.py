@@ -9,9 +9,8 @@ plan, in one go for the checkpoints of all the routes and the cells of the
 heatmap, and the risk rules are applied to both.
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import timedelta
 
-from django.conf import settings
 from django.core.cache import cache
 
 from . import checkpoints, corridor, osrm, risk, weather
@@ -57,12 +56,12 @@ def plan(origin, destination, departure, load_lb, interval=None):
     band = corridor.build([r.line for r in routes])
 
     end = departure + max(timedelta(seconds=max(r.duration_seconds for r in routes)), timedelta(hours=SLIDER_HOURS))
-    horizon = forecast_horizon()
+    horizon = weather.horizon()
     if end > horizon:
         raise PlanningError("the forecast runs to %s UTC and this trip would still need it after that; leave earlier"
                             % horizon.strftime("%d %b %H:%M"))
 
-    points = [(c.lat, c.lon) for route_stops in stops for c in route_stops] + [cell.centre for cell in band.cells]
+    points = [(c.lat, c.lon) for route_stops in stops for c in route_stops] + [cell.point for cell in band.cells]
     hourlies = weather.forecast(points, departure, end)
     taken = 0
     judged = []
@@ -75,6 +74,16 @@ def plan(origin, destination, departure, load_lb, interval=None):
     ids = {k: "ABC"[rank] for rank, k in enumerate(order)}
     quickest = min(range(len(routes)), key=lambda k: routes[k].duration_seconds)
     names = describe(routes)
+
+    # The best route is only recommended when nothing on it is rated No
+    # Travel; otherwise it is the least bad, and the plan says so plainly.
+    best = judged[order[0]]
+    blocked = best["summary"]["miles_by_level"][risk.NO_TRAVEL]
+    warning = None
+    if blocked:
+        warning = ("No route is clear to drive at this departure. Route A is the least bad and still has "
+                   "%d miles rated No Travel; leave at another time." % round(blocked))
+
     out = []
     for rank, k in enumerate(order, start=1):
         route, verdict = routes[k], judged[k]
@@ -90,7 +99,7 @@ def plan(origin, destination, departure, load_lb, interval=None):
             "summary": {
                 **verdict["summary"],
                 "rank": rank,
-                "recommended": rank == 1,
+                "recommended": rank == 1 and not blocked,
                 "reason": reason(verdict["key"], judged[quickest]["key"], ids[quickest]) if rank == 1 else None,
             },
         })
@@ -103,6 +112,7 @@ def plan(origin, destination, departure, load_lb, interval=None):
         "interval_miles": interval,
         "slider_hours": SLIDER_HOURS,
         "notes": notes,
+        "warning": warning,
         "routes": out,
         "heatmap": heatmap(band, cells, departure, load_lb),
     }
@@ -115,12 +125,6 @@ def find_routes(origin, destination):
         routes = osrm.find(origin, destination)
         cache.set(key, routes, ROUTES_CACHE_SECONDS)
     return routes
-
-
-def forecast_horizon():
-    """The last hour Open-Meteo will forecast: the end of the sixteenth day, counting today."""
-    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    return today + timedelta(days=settings.FORECAST_DAYS) - timedelta(hours=1)
 
 
 def judge(route, stops, hourlies, departure, load_lb):
@@ -179,24 +183,38 @@ def reason(best, quickest, quickest_id):
 
 
 def describe(routes):
-    """'via I-80 and I-76': the road a route drives most, and the one that most sets it apart from the others."""
+    """'via I-80 and I-76': the road a route drives most, and the one that sets it apart from the others.
+
+    Among the roads that carry a real share of the drive and that the other
+    routes do not, an interstate is named before a US highway before a
+    state road, since that is how a dispatcher thinks of a route; failing
+    any such road, the longest other road worth mentioning.
+    """
     out = []
     for route in routes:
         if not route.roads:
             out.append("via local roads")
             continue
         others = [o for o in routes if o is not route]
+        worth = max(10.0, 0.05 * route.distance_miles)
         top = max(route.roads, key=route.roads.get)
         apart = {
             road: miles - max((o.roads.get(road, 0.0) for o in others), default=0.0)
             for road, miles in route.roads.items()
             if road != top
         }
-        second = max(apart, key=apart.get) if apart else None
-        if second is not None and apart[second] < max(10.0, 0.05 * route.distance_miles):
-            second = None
+        own = [road for road, miles in apart.items() if miles >= worth]
+        if own:
+            second = max(own, key=lambda road: (road_class(road), apart[road]))
+        else:
+            rest = [road for road, miles in route.roads.items() if road != top and miles >= 2 * worth]
+            second = max(rest, key=lambda road: (road_class(road), route.roads[road])) if rest else None
         out.append(f"via {top} and {second}" if second else f"via {top}")
     return out
+
+
+def road_class(road):
+    return 2 if road.startswith("I-") else 1 if road.startswith("US-") else 0
 
 
 def heatmap(band, hourlies, departure, load_lb):

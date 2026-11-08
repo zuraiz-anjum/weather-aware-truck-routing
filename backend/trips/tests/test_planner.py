@@ -1,7 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from trips import planner
 from trips.geocoding import Place
 from trips.osrm import NoRoute
 from trips.planner import PlanningError, describe, plan, reason
@@ -54,6 +53,17 @@ class PlanTests(CacheTestCase):
         self.assertEqual(windy["summary"]["worst_level"], NO_TRAVEL)
         self.assertEqual(windy["summary"]["miles_by_level"][NO_TRAVEL], windy["distance_miles"])
         self.assertIn("30,000 lb", windy["checkpoints"][0]["load_rule"])
+        self.assertIsNone(result["warning"])
+        self.assertTrue(result["routes"][0]["summary"]["recommended"])
+
+    def test_nothing_is_recommended_when_the_best_route_has_no_travel_miles(self):
+        self.forecast.side_effect = fake_forecast(lambda lat: 60.0)
+        result = plan(ORIGIN, DESTINATION, self.departure, 20_000)
+        self.assertEqual([r["summary"]["recommended"] for r in result["routes"]], [False, False, False])
+        self.assertEqual(result["routes"][0]["summary"]["rank"], 1)
+        self.assertEqual(result["routes"][0]["summary"]["reason"], "the quickest route, and no other scores better on weather")
+        self.assertIn("No route is clear to drive", result["warning"])
+        self.assertIn("Route A is the least bad and still has 200 miles rated No Travel", result["warning"])
 
     def test_the_slow_calm_road_wins_when_the_quick_one_is_windy(self):
         self.forecast.side_effect = fake_forecast(lambda lat: 40.0 if lat < 35.2 and lat > 34.8 else 5.0)
@@ -83,8 +93,8 @@ class PlanTests(CacheTestCase):
         self.find.return_value = [fake_route(east_west_line(35.0, -110.0, 2800), 45 * 3600)]
         far = Place("Far, California", 35.0, -120.0)
         result = plan(ORIGIN, far, self.departure, 20_000, interval=10)
-        self.assertEqual(result["interval_miles"], 25)
-        self.assertIn("every 25 miles rather than 10", result["notes"][-1])
+        self.assertEqual(result["interval_miles"], 50)
+        self.assertIn("every 50 miles rather than 10", result["notes"][-1])
         self.assertIn("Only one distinct road route was found", result["notes"][0])
 
     def test_the_heatmap_has_a_level_for_every_slider_hour_of_every_cell(self):
@@ -158,17 +168,25 @@ class DescribeTests(CacheTestCase):
         routes = three_routes()
         self.assertEqual(describe(routes), ["via I-40 and US-83", "via I-40 and US-60", "via US-70"])
 
+    def test_a_road_shared_with_the_others_is_named_when_nothing_sets_the_route_apart(self):
+        a = fake_route(east_west_line(35.0, -100.0, 400), 3600, roads={"I-40": 250.0, "I-75": 140.0, "SR-9": 10.0})
+        b = fake_route(east_west_line(35.5, -100.0, 400), 3600, roads={"I-40": 250.0, "I-75": 140.0, "SR-11": 10.0})
+        self.assertEqual(describe([a, b]), ["via I-40 and I-75", "via I-40 and I-75"])
+
+    def test_an_interstate_is_named_before_a_longer_state_road(self):
+        a = fake_route(east_west_line(35.0, -100.0, 700), 3600, roads={"I-65": 400.0, "SR-111": 60.0, "I-24": 50.0, "I-75": 190.0})
+        b = fake_route(east_west_line(35.5, -100.0, 700), 3600, roads={"US-41": 500.0, "I-75": 200.0})
+        self.assertEqual(describe([a, b]), ["via I-65 and I-24", "via US-41 and I-75"])
+
     def test_a_lone_route_names_its_two_main_roads(self):
-        self.assertEqual(describe([three_routes()[0]]), ["via I-40 and US-83"])
+        self.assertEqual(describe([three_routes()[1]]), ["via I-40 and US-60"])
         self.assertEqual(describe([fake_route(east_west_line(35.0, -100.0, 200), 3600, roads={"I-40": 195.0, "Elm Street": 5.0})]),
                          ["via I-40"])
 
+    def test_a_short_detour_is_told_apart_by_a_few_miles_of_another_road(self):
+        a = fake_route(east_west_line(39.7, -105.0, 68), 4800, roads={"I-25": 68.0})
+        b = fake_route(east_west_line(39.9, -105.0, 86), 6660, detour=True, roads={"I-25": 60.0, "CO-83": 14.0, "CO-86": 12.0})
+        self.assertEqual(describe([a, b]), ["via I-25", "via I-25 and CO-83"])
+
     def test_no_roads_at_all(self):
         self.assertEqual(describe([fake_route(east_west_line(35.0, -100.0, 20), 3600)]), ["via local roads"])
-
-
-class HorizonTests(CacheTestCase):
-    def test_last_hour_of_the_sixteenth_day(self):
-        horizon = planner.forecast_horizon()
-        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-        self.assertEqual(horizon, today + timedelta(days=16) - timedelta(hours=1))

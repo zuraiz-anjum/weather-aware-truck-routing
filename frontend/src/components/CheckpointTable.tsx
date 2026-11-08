@@ -1,9 +1,9 @@
-import { levelColor, levelName } from '../risk'
+import { chipText, levelColor, levelInk, levelName } from '../risk'
 import { formatShortTime } from '../time'
 import type { Level, Route } from '../types'
 
 function tone(level: Level) {
-  return level > 0 ? { color: levelColor(level), fontWeight: 600 } : undefined
+  return level > 0 ? { color: levelInk(level), fontWeight: 600 } : undefined
 }
 
 export default function CheckpointTable({ route }: { route: Route }) {
@@ -44,7 +44,7 @@ export default function CheckpointTable({ route }: { route: Route }) {
                 {c.snow_in.toFixed(2)}
               </td>
               <td>
-                <span className="chip" style={{ background: levelColor(c.level) }}>
+                <span className="chip" style={{ background: levelColor(c.level), color: chipText(c.level) }}>
                   {levelName(c.level)}
                 </span>
                 {c.load_rule && (

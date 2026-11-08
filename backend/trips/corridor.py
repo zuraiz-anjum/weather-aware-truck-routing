@@ -7,6 +7,10 @@ a cell is then about thirty pixels wide when the whole trip fits on the
 screen, which is as fine as a heatmap needs to be. The count matters
 because every cell is a point in the forecast request, and Open-Meteo
 counts each point against a free allowance of six hundred a minute.
+
+A cell the road runs through is forecast at a point on the road, so that
+it agrees with the checkpoints inside it; a cell beside the road is
+forecast at its centre.
 """
 
 import math
@@ -26,10 +30,7 @@ class Cell:
     west: float
     north: float
     east: float
-
-    @property
-    def centre(self):
-        return ((self.south + self.north) / 2, (self.west + self.east) / 2)
+    point: tuple  # (lat, lon) the forecast is asked for
 
 
 @dataclass(frozen=True)
@@ -52,11 +53,20 @@ def lattice(lines, size_miles):
     dlat = size_miles / MILES_PER_DEGREE
     mid = sum(lat for line in lines for lat, _ in line.points) / sum(len(line.points) for line in lines)
     dlon = dlat / math.cos(math.radians(mid))
+    on_road = {}
     taken = set()
     for line in lines:
         for lat, lon in line.sample(size_miles / 2):
             i, j = math.floor(lat / dlat), math.floor(lon / dlon)
+            on_road.setdefault((i, j), []).append((lat, lon))
             for di in range(-BAND, BAND + 1):
                 for dj in range(-BAND, BAND + 1):
                     taken.add((i + di, j + dj))
-    return [Cell(i * dlat, j * dlon, (i + 1) * dlat, (j + 1) * dlon) for i, j in sorted(taken)]
+    cells = []
+    for i, j in sorted(taken):
+        south, west, north, east = i * dlat, j * dlon, (i + 1) * dlat, (j + 1) * dlon
+        centre = ((south + north) / 2, (west + east) / 2)
+        inside = on_road.get((i, j))
+        point = min(inside, key=lambda p: (p[0] - centre[0]) ** 2 + (p[1] - centre[1]) ** 2) if inside else centre
+        cells.append(Cell(south, west, north, east, point))
+    return cells

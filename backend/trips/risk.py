@@ -56,10 +56,6 @@ class Assessment:
     snow: int
     load_rule: str | None  # set when the load pushed the wind level up
 
-    @property
-    def name(self):
-        return NAMES[self.level]
-
 
 def assess(wind_mph, rain_inches_per_hour, snow_inches_per_hour, load_lb):
     """Classify the conditions for a truck carrying load_lb; the worst factor decides."""
