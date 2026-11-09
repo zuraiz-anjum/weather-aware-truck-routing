@@ -94,8 +94,8 @@ function install(map: MapLibre) {
 
 function summarise(route: Route): string {
   return (
-    `<b>Route ${escape(route.id)}</b> ${escape(route.name)}<br>` +
-    `${Math.round(route.distance_miles).toLocaleString()} mi, ${escape(formatDuration(route.duration_seconds))}<br>` +
+    `<b>Route ${escapeHtml(route.id)}</b> ${escapeHtml(route.name)}<br>` +
+    `${Math.round(route.distance_miles).toLocaleString()} mi, ${escapeHtml(formatDuration(route.duration_seconds))}<br>` +
     `Worst <b style="color:${LEVEL_COLORS[route.summary.worst_level]}">${levelName(route.summary.worst_level)}</b>, ` +
     `average ${route.summary.average_risk.toFixed(2)}` +
     (route.summary.recommended ? '<br><i>Recommended</i>' : '')
@@ -129,7 +129,7 @@ function checkpointFeatures(plan: Plan): FeatureCollection<Point> {
   return { type: 'FeatureCollection', features }
 }
 
-function escape(text: string): string {
+function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 }
 
@@ -140,11 +140,11 @@ function describe(route: string, c: Checkpoint): string {
     ['Snow', `${c.snow_in.toFixed(2)} in/h`, c.snow_level],
   ] as const
   return (
-    `<b>Route ${escape(route)}, mile ${Math.round(c.mile)}</b><br>` +
-    `${escape(formatShortTime(c.eta))}<br>` +
+    `<b>Route ${escapeHtml(route)}, mile ${Math.round(c.mile)}</b><br>` +
+    `${escapeHtml(formatShortTime(c.eta))}<br>` +
     rows.map(([name, value, level]) => `${name} ${value}${level > 0 ? ` <i>${levelName(level)}</i>` : ''}`).join('<br>') +
     `<br><b style="color:${LEVEL_COLORS[c.level]}">${levelName(c.level)}</b>` +
-    (c.load_rule ? `<br><small>${escape(c.load_rule)}</small>` : '')
+    (c.load_rule ? `<br><small>${escapeHtml(c.load_rule)}</small>` : '')
   )
 }
 
@@ -200,12 +200,18 @@ export default function RouteMap({ plan, selected, hour, onSelect, overlay }: Pr
         const id = event.features?.[0]?.properties?.id
         if (typeof id === 'string') select.current(id)
       })
+      // A dot sits on its line, so while the pointer is on a dot the line's
+      // own popup keeps out of the way; otherwise it would replace the
+      // checkpoint's on the next pixel of movement.
+      let onDot = false
       instance.on('mouseenter', 'routes', () => (instance.getCanvas().style.cursor = 'pointer'))
       instance.on('mousemove', 'routes', (event: MapMouseEvent & { features?: MapGeoJSONFeature[] }) => {
+        if (onDot) return
         const summary = event.features?.[0]?.properties?.summary
         if (typeof summary === 'string') popup.setLngLat(event.lngLat).setHTML(summary).addTo(instance)
       })
       instance.on('mouseleave', 'routes', () => {
+        if (onDot) return
         instance.getCanvas().style.cursor = ''
         popup.remove()
       })
@@ -213,12 +219,14 @@ export default function RouteMap({ plan, selected, hour, onSelect, overlay }: Pr
         instance.on('mouseenter', layer, (event: MapMouseEvent & { features?: MapGeoJSONFeature[] }) => {
           const feature = event.features?.[0]
           if (!feature || feature.geometry.type !== 'Point') return
+          onDot = true
           instance.getCanvas().style.cursor = 'default'
           const [lon, lat] = feature.geometry.coordinates
           const { route, ...checkpoint } = feature.properties as Checkpoint & { route: string }
           popup.setLngLat([lon, lat]).setHTML(describe(route, checkpoint)).addTo(instance)
         })
         instance.on('mouseleave', layer, () => {
+          onDot = false
           instance.getCanvas().style.cursor = ''
           popup.remove()
         })
