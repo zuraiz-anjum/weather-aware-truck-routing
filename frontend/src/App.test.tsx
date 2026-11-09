@@ -32,6 +32,7 @@ vi.mock('./api', () => ({
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
+  window.history.replaceState(null, '', '/')
 })
 
 function ask() {
@@ -50,7 +51,7 @@ describe('App', () => {
     vi.mocked(planTrip).mockResolvedValue(plan({ notes: ['Only two distinct road routes were found between these places.'] }))
     render(<App />)
     ask()
-    expect(screen.getByText(/Fetching routes/)).toBeTruthy()
+    expect(screen.getByText(/Fetching the roads/)).toBeTruthy()
     await waitFor(() => expect(screen.getByText('Recommended')).toBeTruthy())
     expect(screen.getByText(/Only two distinct road routes/)).toBeTruthy()
     await waitFor(() => expect(screen.getByTestId('map').textContent).toBe('A@0'))
@@ -62,6 +63,26 @@ describe('App', () => {
 
     fireEvent.change(screen.getByLabelText(/Forecast at/), { target: { value: '12' } })
     expect(screen.getByTestId('map').textContent).toBe('B@12')
+    expect(window.location.search).toContain('from=Amarillo&to=Oklahoma+City&leave=')
+  })
+
+  it('opens a shared link and plans it when the departure is still ahead', async () => {
+    vi.mocked(planTrip).mockResolvedValue(plan())
+    window.history.replaceState(null, '', '?from=Amarillo&from_at=35.2,-101.8&to=Oklahoma+City&leave=2099-01-01T10:00:00.000Z&load=36000&every=50')
+    render(<App />)
+    await waitFor(() => expect(screen.getByText('Recommended')).toBeTruthy())
+    expect(planTrip).toHaveBeenCalledWith(
+      { origin: { text: 'Amarillo', lat: 35.2, lon: -101.8 }, destination: { text: 'Oklahoma City' }, departure: '2099-01-01T10:00:00.000Z', load_lb: 36000, interval_miles: 50 },
+      expect.any(AbortSignal),
+    )
+    expect((screen.getByLabelText('Load weight (lb)') as HTMLInputElement).value).toBe('36000')
+  })
+
+  it('only fills the form from a link whose departure has passed', () => {
+    window.history.replaceState(null, '', '?from=Amarillo&to=Oklahoma+City&leave=2020-01-01T10:00:00.000Z&load=20000')
+    render(<App />)
+    expect(planTrip).not.toHaveBeenCalled()
+    expect((screen.getByLabelText('Origin') as HTMLInputElement).value).toBe('Amarillo')
   })
 
   it('takes the map to a checkpoint picked from the table, until another route is chosen', async () => {

@@ -169,6 +169,11 @@ a paint expression on the GPU, so it is instant, and the truck markers move
 to where each route has the truck at that hour. Calm cells are a faint
 wash; trouble is solid.
 
+**Sharing.** Once a plan is made its inputs are in the address bar, so the
+link can be sent on: opening it fills the form and, if the departure is
+still ahead, plans again. Three example trips under the form plan with one
+click, for a first look.
+
 ## The API
 
 `POST /api/plan/` with a JSON body:
@@ -338,7 +343,7 @@ frontend/src/
   App.tsx            state and layout
   components/        TripForm, PlaceInput, RouteCards, CheckpointTable,
                      HourSlider, Legend, RouteMap (MapLibre)
-  api.ts, types.ts, risk.ts, time.ts, progress.ts
+  api.ts, types.ts, risk.ts, time.ts, progress.ts, link.ts, words.ts
 frontend/e2e/        the built app in a browser
 Dockerfile, render.yaml, .github/   workflows, and the Space's own README
 ```

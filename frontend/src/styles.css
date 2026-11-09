@@ -183,6 +183,14 @@ button.link {
   font-size: 12px;
 }
 
+.examples {
+  margin-top: 6px !important;
+}
+
+.examples button {
+  font-size: inherit;
+}
+
 .problem {
   color: var(--danger);
   border: 1px solid #f1b9b4;
@@ -232,6 +240,15 @@ button.link {
 
 .map-area.stale .maplibregl-canvas {
   filter: grayscale(0.6);
+}
+
+.credits {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.credits a {
+  color: inherit;
 }
 
 /* Routes */

@@ -39,6 +39,7 @@ test('a plan is drawn and the slider moves through it', async ({ page }) => {
   await page.getByLabel('Destination').fill('Oklahoma City')
   await page.getByRole('button', { name: 'Plan routes' }).click()
   await expect(page.getByText('Recommended')).toBeVisible()
+  await expect(page).toHaveURL(/from=Amarillo&to=Oklahoma\+City&leave=/)
   // Two trucks and two ends, placed once the map has its style and has taken the plan.
   await expect(page.locator('.maplibregl-marker')).toHaveCount(4)
   await page.getByLabel(/Forecast at/).press('End')

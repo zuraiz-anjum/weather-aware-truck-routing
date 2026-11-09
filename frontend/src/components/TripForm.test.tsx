@@ -57,6 +57,33 @@ describe('TripForm', () => {
     expect((screen.getByLabelText('Destination') as HTMLInputElement).value).toBe('Here')
   })
 
+  it('plans an example trip in one click, with its coordinates', () => {
+    const onSubmit = vi.fn()
+    render(<TripForm onSubmit={onSubmit} busy={false} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Denver to Salt Lake City' }))
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    const request = onSubmit.mock.calls[0][0]
+    expect(request.origin).toEqual({ text: 'Denver, Colorado', lat: 39.7392, lon: -104.9903 })
+    expect(request.destination.text).toBe('Salt Lake City, Utah')
+    expect((screen.getByLabelText('Origin') as HTMLInputElement).value).toBe('Denver, Colorado')
+  })
+
+  it('starts from a draft when given one', () => {
+    const draft = {
+      origin: { text: 'Amarillo', place: { label: 'Amarillo', lat: 35.2, lon: -101.8 } },
+      destination: { text: 'Oklahoma City' },
+      departure: '2026-11-12T09:00',
+      load: '36000',
+      interval: '50',
+    }
+    render(<TripForm onSubmit={vi.fn()} busy={false} initial={draft} />)
+    expect((screen.getByLabelText('Origin') as HTMLInputElement).value).toBe('Amarillo')
+    expect(screen.getByText('35.200, -101.800')).toBeTruthy()
+    expect((screen.getByLabelText(/Departure/) as HTMLInputElement).value).toBe('2026-11-12T09:00')
+    expect((screen.getByLabelText('Load weight (lb)') as HTMLInputElement).value).toBe('36000')
+    expect((screen.getByLabelText('Weather checkpoints') as HTMLSelectElement).value).toBe('50')
+  })
+
   it('is quiet while a plan is on its way', () => {
     render(<TripForm onSubmit={vi.fn()} busy={true} />)
     const button = screen.getByRole('button', { name: /Planning/ }) as HTMLButtonElement

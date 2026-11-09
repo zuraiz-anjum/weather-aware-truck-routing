@@ -5,6 +5,7 @@ import HourSlider from './components/HourSlider'
 import Legend from './components/Legend'
 import RouteCards from './components/RouteCards'
 import TripForm from './components/TripForm'
+import { readLink, writeLink } from './link'
 import { formatTime } from './time'
 import { sentence } from './words'
 import type { Checkpoint, Plan, PlanRequest } from './types'
@@ -23,6 +24,7 @@ export default function App() {
   const pending = useRef<AbortController | null>(null)
   const lastRequest = useRef<{ request: PlanRequest; attempt: number } | null>(null)
   const overlay = useRef<HTMLDivElement>(null)
+  const [opening] = useState(() => readLink(window.location.search)) // a plan sent on as a link
 
   const submit = useCallback(async (request: PlanRequest, attempt = 1) => {
     pending.current?.abort()
@@ -38,6 +40,7 @@ export default function App() {
       setSelected(result.routes[0]?.id ?? null)
       setHour(0)
       setFocus(null)
+      window.history.replaceState(null, '', writeLink(request))
     } catch (failure: unknown) {
       if (failure instanceof DOMException && failure.name === 'AbortError') return
       // The weather service's allowance for the minute is spent: wait it out
@@ -53,6 +56,14 @@ export default function App() {
       if (pending.current === controller) setBusy(false)
     }
   }, [])
+
+  // A link whose departure is still ahead is planned once the page is up;
+  // one whose departure has passed only fills the form and waits to be changed.
+  useEffect(() => {
+    if (!opening || Date.parse(opening.request.departure) <= Date.now()) return
+    const timer = setTimeout(() => void submit(opening.request), 0)
+    return () => clearTimeout(timer)
+  }, [opening, submit])
 
   const choose = useCallback((id: string) => {
     setSelected(id)
@@ -81,7 +92,7 @@ export default function App() {
             Three routes, the weather each one meets at the hour the truck gets there, and which to take.
           </p>
         </header>
-        <TripForm onSubmit={submit} busy={busy} />
+        <TripForm onSubmit={submit} busy={busy} initial={opening?.draft} />
         {error && (
           <p className="problem" role="alert">
             {sentence(error)}
@@ -124,6 +135,10 @@ export default function App() {
             </p>
           </div>
         )}
+        <footer className="small muted credits">
+          Weather by <a href="https://open-meteo.com/">Open-Meteo</a>, roads by <a href="https://project-osrm.org/">OSRM</a>, places by{' '}
+          <a href="https://photon.komoot.io/">Photon</a>. <a href="https://github.com/zuraiz-anjum/weather-aware-truck-routing">Source</a>.
+        </footer>
       </aside>
       <main className={stale ? 'map-area stale' : 'map-area'}>
         <Suspense fallback={<div className="map map-loading muted">Loading the map&hellip;</div>}>
@@ -137,7 +152,7 @@ export default function App() {
         )}
         {busy && (
           <div className="map-busy" aria-live="polite">
-            Fetching routes and forecasts&hellip;
+            Fetching the roads, then the forecast for every checkpoint and cell. A new pair of places takes a few seconds.
           </div>
         )}
       </main>

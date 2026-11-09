@@ -1,16 +1,33 @@
 import { useState, type FormEvent } from 'react'
 import { fromInputValue, nextWholeHour, timeZoneName, toInputValue } from '../time'
-import type { PlaceInput as PlaceRequest, PlanRequest } from '../types'
+import type { Place, PlaceInput as PlaceRequest, PlanRequest } from '../types'
 import PlaceInput, { type PlaceValue } from './PlaceInput'
+
+// The form's fields as typed, which a shared link fills in.
+export interface Draft {
+  origin: PlaceValue
+  destination: PlaceValue
+  departure: string
+  load: string
+  interval: string
+}
 
 interface Props {
   onSubmit: (request: PlanRequest) => void
   busy: boolean
+  initial?: Draft
 }
 
 export const MAX_LOAD_LB = 200_000
 // What the server accepts: up to an hour back, up to thirteen days less an hour ahead.
 const LATEST_AHEAD_MS = 13 * 86_400_000 - 3_600_000
+
+// Three trips a first look can start from: a click fills the boxes and plans.
+const EXAMPLES: { origin: Place; destination: Place }[] = [
+  { origin: { label: 'Denver, Colorado', lat: 39.7392, lon: -104.9903 }, destination: { label: 'Salt Lake City, Utah', lat: 40.7608, lon: -111.891 } },
+  { origin: { label: 'Amarillo, Texas', lat: 35.222, lon: -101.8313 }, destination: { label: 'Oklahoma City, Oklahoma', lat: 35.4676, lon: -97.5164 } },
+  { origin: { label: 'Chicago, Illinois', lat: 41.8781, lon: -87.6298 }, destination: { label: 'Atlanta, Georgia', lat: 33.749, lon: -84.388 } },
+]
 
 function asRequest(value: PlaceValue): PlaceRequest {
   return value.place
@@ -18,23 +35,35 @@ function asRequest(value: PlaceValue): PlaceRequest {
     : { text: value.text.trim() }
 }
 
-export default function TripForm({ onSubmit, busy }: Props) {
-  const [origin, setOrigin] = useState<PlaceValue>({ text: '' })
-  const [destination, setDestination] = useState<PlaceValue>({ text: '' })
-  const [departure, setDeparture] = useState(() => toInputValue(nextWholeHour()))
+export default function TripForm({ onSubmit, busy, initial }: Props) {
+  const [origin, setOrigin] = useState<PlaceValue>(initial?.origin ?? { text: '' })
+  const [destination, setDestination] = useState<PlaceValue>(initial?.destination ?? { text: '' })
+  const [departure, setDeparture] = useState(() => initial?.departure ?? toInputValue(nextWholeHour()))
   const [bounds] = useState(() => {
     const now = new Date()
     return { min: toInputValue(now), max: toInputValue(new Date(now.getTime() + LATEST_AHEAD_MS)) }
   })
-  const [load, setLoad] = useState('20000')
-  const [interval, setInterval] = useState('auto')
+  const [load, setLoad] = useState(initial?.load ?? '20000')
+  const [interval, setInterval] = useState(initial?.interval ?? 'auto')
   const [problem, setProblem] = useState<string | null>(null)
 
   function submit(event: FormEvent) {
     event.preventDefault()
+    plan(origin, destination)
+  }
+
+  function example(trip: (typeof EXAMPLES)[number]) {
+    const from = { text: trip.origin.label, place: trip.origin }
+    const to = { text: trip.destination.label, place: trip.destination }
+    setOrigin(from)
+    setDestination(to)
+    plan(from, to)
+  }
+
+  function plan(from: PlaceValue, to: PlaceValue) {
     const when = fromInputValue(departure)
     const pounds = Number(load)
-    if (!origin.text.trim() || !destination.text.trim()) {
+    if (!from.text.trim() || !to.text.trim()) {
       setProblem('Give both an origin and a destination.')
     } else if (!when) {
       setProblem('Give a departure date and time.')
@@ -43,8 +72,8 @@ export default function TripForm({ onSubmit, busy }: Props) {
     } else {
       setProblem(null)
       onSubmit({
-        origin: asRequest(origin),
-        destination: asRequest(destination),
+        origin: asRequest(from),
+        destination: asRequest(to),
         departure: when.toISOString(),
         load_lb: Math.round(pounds),
         ...(interval === 'auto' ? {} : { interval_miles: Number(interval) }),
@@ -64,6 +93,18 @@ export default function TripForm({ onSubmit, busy }: Props) {
       <button type="button" className="link swap" onClick={swap}>
         Swap
       </button>
+      <p className="small muted examples">
+        Try{' '}
+        {EXAMPLES.map((trip, k) => (
+          <span key={trip.origin.label}>
+            {k > 0 && (k === EXAMPLES.length - 1 ? ' or ' : ', ')}
+            <button type="button" className="link" onClick={() => example(trip)} disabled={busy}>
+              {trip.origin.label.split(',')[0]} to {trip.destination.label.split(',')[0]}
+            </button>
+          </span>
+        ))}
+        .
+      </p>
       <div className="row">
         <div className="field">
           <label htmlFor="departure">Departure ({timeZoneName()})</label>
