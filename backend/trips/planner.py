@@ -173,11 +173,14 @@ def judge(route, stops, hourlies, departure, load_lb):
             "load_rule": found.load_rule,
         })
     average = weighted / route.distance_miles if route.distance_miles else 0.0
+    # The mean is compared to a tenth. A longer route that meets the same
+    # trouble has a lower mean only for carrying more calm miles after it,
+    # which is no reason to drive them; means that close fall through to time.
     key = (
         round(miles_by_level[risk.NO_TRAVEL], 1),
         round(miles_by_level[risk.SEVERE], 1),
         round(miles_by_level[risk.HIGH], 1),
-        round(average, 3),
+        round(average, 1),
         route.duration_seconds,
     )
     summary = {

@@ -7,7 +7,7 @@ from trips import planner
 from trips.geocoding import Place
 from trips.osrm import Found, NoRoute
 from trips.planner import PlanningError, describe, plan, reason
-from trips.risk import HIGH, LOW, NO_TRAVEL, SEVERE
+from trips.risk import HIGH, LOW, MODERATE, NO_TRAVEL, SEVERE
 
 from .support import CacheTestCase, fake_forecast, fake_route
 from .test_geometry import east_west_line
@@ -37,6 +37,27 @@ class PlanTests(CacheTestCase):
         self.find = mock.patch("trips.osrm.find", return_value=Found(three_routes(), 0)).start()
         self.forecast = mock.patch("trips.weather.forecast", side_effect=fake_forecast(windy_north)).start()
         self.addCleanup(mock.patch.stopall)
+
+    def test_a_longer_route_meeting_the_same_trouble_does_not_win_on_its_diluted_mean(self):
+        # Both routes leave town through the same twenty-odd miles of Moderate
+        # wind; the longer one has the lower mean only for the calm miles after.
+        short = fake_route(east_west_line(35.0, -100.0, 240), 3.6 * 3600)
+        long = fake_route(east_west_line(35.0, -100.0, 360), 5.4 * 3600, detour=True)
+        self.find.return_value = Found([short, long], 0)
+        windy, calm = fake_forecast(lambda lat: 30.0), fake_forecast()
+
+        def forecast(points, start, end):
+            return [(windy if lon < -99.6 else calm)([(lat, lon)], start, end)[0] for lat, lon in points]
+
+        self.forecast.side_effect = forecast
+        routes = plan(ORIGIN, DESTINATION, self.departure, 20_000)["routes"]
+        self.assertEqual([round(r["distance_miles"]) for r in routes], [240, 360])  # 25 Moderate miles each: 0.10 and 0.07
+        moderate = [r["summary"]["miles_by_level"][MODERATE] for r in routes]
+        self.assertEqual(moderate[0], moderate[1])
+        self.assertGreater(moderate[0], 0)
+        self.assertLess(routes[1]["summary"]["average_risk"], routes[0]["summary"]["average_risk"])
+        self.assertTrue(routes[0]["summary"]["recommended"])
+        self.assertEqual(routes[0]["summary"]["reason"], "the quickest route, and no other scores better on weather")
 
     def test_routes_come_back_ranked_with_the_calm_quick_one_first(self):
         result = plan(ORIGIN, DESTINATION, self.departure, 20_000)
