@@ -302,7 +302,9 @@ not billed. The hosted copy is deployed by CI rather than by Render's own
 watch on the repository: once the suites and the image have passed on
 `main`, the `deploy` job asks Render's API to deploy that commit, so a
 red run never reaches the service; it needs the repository secret
-`RENDER_API_KEY` and the variable `RENDER_SERVICE_ID`. Free services
+`RENDER_API_KEY` and the variable `RENDER_SERVICE_ID`, and with the
+variable set but the secret missing the job fails, which is the right
+colour for a deploy that did not happen. Free services
 sleep after fifteen idle minutes; the `keep-warm` workflow pings the
 service every ten minutes once the repository variable `APP_URL` is set
 to its address. Set the repository's website on GitHub to the same

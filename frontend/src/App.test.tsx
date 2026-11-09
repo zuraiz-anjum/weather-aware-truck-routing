@@ -142,6 +142,7 @@ describe('App', () => {
       expect(planTrip).toHaveBeenCalledTimes(2)
       expect(vi.mocked(planTrip).mock.calls[1][0].forecast).toEqual({ points: offer.points, hourly: [hourly, hourly] })
       expect(screen.queryByRole('status')).toBeNull()
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' }) // the status line was brought on screen
     } finally {
       vi.unstubAllGlobals()
     }

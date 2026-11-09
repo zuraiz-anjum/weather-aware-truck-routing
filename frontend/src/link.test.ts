@@ -40,10 +40,11 @@ describe('a plan in the address bar', () => {
     expect(opening?.draft.interval).toBe('auto')
   })
 
-  it('takes a departure from the year or so around today, not one years off either way', () => {
+  it('takes a departure from any time back or the year ahead, not one years ahead', () => {
     expect(readLink('?from=A&to=B&leave=2026-06-01T14:00:00Z&load=1')).not.toBeNull()
     expect(readLink('?from=A&to=B&leave=2027-06-01T14:00:00Z&load=1')).not.toBeNull()
-    expect(readLink('?from=A&to=B&leave=2025-09-01T14:00:00Z&load=1')).toBeNull()
+    expect(readLink('?from=A&to=B&leave=2025-09-01T14:00:00Z&load=1')).not.toBeNull()
+    expect(readLink('?from=A&to=B&leave=2020-01-01T14:00:00Z&load=1')).not.toBeNull()
     expect(readLink('?from=A&to=B&leave=2028-01-01T14:00:00Z&load=1')).toBeNull()
     expect(readLink('?from=A&to=B&leave=2099-01-01T14:00:00Z&load=1')).toBeNull()
   })

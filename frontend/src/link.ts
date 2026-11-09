@@ -13,10 +13,10 @@ export interface Opening {
 }
 
 const INTERVALS = ['10', '25', '50']
-// A link from months back still fills the form, to be given a new time. One a year
-// or more off, either way, is a typo or a prod, and sent on to the server it would
-// come back as a raw framework message.
-const FURTHEST_MS = 400 * 86_400_000
+// A link from any time back still fills the form, to be given a new time, and
+// the page says so. One more than a year ahead is a typo or a prod, and sent on
+// to the server it would come back as a raw framework message.
+const FURTHEST_AHEAD_MS = 400 * 86_400_000
 
 export function readLink(search: string): Opening | null {
   const params = new URLSearchParams(search)
@@ -27,7 +27,7 @@ export function readLink(search: string): Opening | null {
   const every = params.get('every')
   // A load that is not there is not an empty truck: Number(null) would be 0.
   if (!origin || !destination || Number.isNaN(leave) || !load) return null
-  if (Math.abs(leave - Date.now()) > FURTHEST_MS) return null
+  if (leave - Date.now() > FURTHEST_AHEAD_MS) return null
   const pounds = Number(load)
   if (!Number.isInteger(pounds) || pounds < 0 || pounds > MAX_LOAD_LB) return null
   if (every !== null && !INTERVALS.includes(every)) return null

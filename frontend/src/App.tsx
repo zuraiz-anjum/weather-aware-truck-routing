@@ -27,6 +27,7 @@ export default function App() {
   const lastRequest = useRef<{ request: PlanRequest; attempt: number } | null>(null)
   const overlay = useRef<HTMLDivElement>(null)
   const alarm = useRef<HTMLParagraphElement>(null)
+  const aside = useRef<HTMLParagraphElement>(null) // the line that says the forecast is being fetched here
   const [opening] = useState(() => readLink(window.location.search)) // a plan sent on as a link
   // The link's departure has gone by, so nothing was planned from it; said until a plan is asked for.
   const [passed, setPassed] = useState(() => opening !== null && Date.parse(opening.request.departure) <= Date.now())
@@ -108,6 +109,9 @@ export default function App() {
   useEffect(() => {
     if (error) alarm.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [error])
+  useEffect(() => {
+    if (fetching) aside.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [fetching])
 
   const route = plan?.routes.find((r) => r.id === selected) ?? plan?.routes[0] ?? null
   // A plan left on screen after a failed attempt, or while one is waiting to be retried, is the previous one.
@@ -130,7 +134,7 @@ export default function App() {
           </p>
         )}
         {fetching && (
-          <p className="waiting" role="status">
+          <p className="waiting" role="status" ref={aside}>
             The weather service's allowance for the server is spent, so the forecast is being fetched through this browser instead.
           </p>
         )}
