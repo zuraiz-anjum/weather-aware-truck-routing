@@ -231,7 +231,7 @@ hour or the day is spent, and 429 past 20 plans a minute from one address
   fifty cells and a route to about a hundred checkpoints: a long trip
   comes to 160 to 190 points, coast to coast about 230, and a short one to
   50. Forecasts are cached
-  for half an hour in windows that run from midnight of the departure day
+  for an hour in windows that run from midnight of the departure day
   to the first midnight after the trip and the slider, and at least three
   days, so that departures on the same day for the same trip usually share
   one fetch; routes for a pair of places are kept for a day. Two or three

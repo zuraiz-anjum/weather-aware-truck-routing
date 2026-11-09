@@ -30,7 +30,7 @@ PARALLEL_REQUESTS = 4
 # slider after it, is one fetch. Forecasts are revised hourly; a window
 # fetched again within this long gets the same answer.
 MIN_WINDOW = timedelta(days=3)
-CACHE_SECONDS = 30 * 60
+CACHE_SECONDS = 60 * 60
 
 _session = requests.Session()
 
