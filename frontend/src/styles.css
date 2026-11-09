@@ -550,6 +550,10 @@ button.link {
     white-space: normal;
   }
 
+  .checkpoints td:last-child small {
+    white-space: nowrap; /* the mark moves down whole rather than breaking between its words */
+  }
+
   /* One compact strip, so the map keeps most of the height. */
   .map-controls {
     bottom: 40px;

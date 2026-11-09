@@ -26,7 +26,7 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate          # macOS and Linux: source .venv/bin/activate
 pip install -r requirements.txt
-python manage.py test           # 156 tests, no network needed
+python manage.py test           # 157 tests, no network needed
 python manage.py runserver
 ```
 
@@ -35,7 +35,7 @@ Frontend, in another:
 ```
 cd frontend
 npm ci
-npm test                        # 28 tests
+npm test                        # 29 tests
 npm run dev
 ```
 
@@ -231,7 +231,7 @@ hour or the day is spent, and 429 past 20 plans a minute from one address
   fresh plans of long trips in one minute are fine, and a few dozen a day; past
   an allowance the API answers 503 with a `Retry-After` and says whether
   to wait a minute, an hour or a day, and when it is the minute's the page
-  counts it down and asks again by itself.
+  counts it down and asks again by itself, twice at most.
 - The model runs sixteen days out from its own start, so between midnight
   UTC and the arrival of the day's first run, around 04:30, the last few
   hours of the sixteenth day come back empty. They are cut off the end of
@@ -268,7 +268,7 @@ self-hosted copies of the services.
 
 ## Tests and checks
 
-`python manage.py test` runs the backend's 156 tests: the risk table at
+`python manage.py test` runs the backend's 157 tests: the risk table at
 every boundary, checkpoint placement, the heatmap lattice, the polyline
 decoder against the format's reference, the OSRM stitching, the side-route
 search with its spur and minor-road rules and second routing,
@@ -278,7 +278,7 @@ stubbed. Three more run against
 the real services when `LIVE_SERVICES=1` is set: the forecast window at
 both ends of the allowed range, and a short trip through the whole
 planner. They exist because the stubs can only check what the code
-expects, not what the services accept. `npm test` runs the frontend's 28:
+expects, not what the services accept. `npm test` runs the frontend's 29:
 time and distance helpers, the form's validation and payload, the place
 suggestions, the route cards, and the app's planning flow with the map
 stubbed out, since jsdom has no WebGL. CI runs both suites, the live tests

@@ -15,20 +15,24 @@ def soon(hours=2):
     return (datetime.now(timezone.utc) + timedelta(hours=hours)).replace(microsecond=0)
 
 
+# The bad requests and failing services these tests arrange on purpose are
+# not worth a log line each in the test output.
+QUIET = (("django.request", logging.CRITICAL), ("trips.views", logging.ERROR))
+_levels = {}
+
+
+def setUpModule():
+    for name, level in QUIET:
+        _levels[name] = logging.getLogger(name).level
+        logging.getLogger(name).setLevel(level)
+
+
+def tearDownModule():
+    for name, level in _levels.items():
+        logging.getLogger(name).setLevel(level)
+
+
 class PlanViewTests(CacheTestCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        # The bad requests these tests make on purpose are not worth a warning line each.
-        cls.request_log = logging.getLogger("django.request")
-        cls.request_log_level = cls.request_log.level
-        cls.request_log.setLevel(logging.ERROR)
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.request_log.setLevel(cls.request_log_level)
-        super().tearDownClass()
-
     def setUp(self):
         super().setUp()
         self.routes = [fake_route(east_west_line(35.0 + k * 0.4, -100.0, 200), (3 + k) * 3600) for k in range(3)]
