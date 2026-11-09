@@ -1,12 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
-import { LngLatBounds, Map as MapLibre, Marker, NavigationControl, Popup } from 'maplibre-gl'
+import { LngLatBounds, Map as MapLibre, Marker, NavigationControl, Popup, setWorkerUrl } from 'maplibre-gl'
 import type { ExpressionSpecification, GeoJSONSource, MapGeoJSONFeature, MapMouseEvent } from 'maplibre-gl'
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson'
 import { LEVEL_COLORS, levelName } from '../risk'
 import { formatDuration, formatShortTime } from '../time'
 import { mileAt, Track } from '../progress'
 import type { Checkpoint, Plan, Route } from '../types'
+import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
+
+// MapLibre looks for its worker next to its own file. The bundler renames
+// that file and moves it, and the worker with it, so it is told where.
+setWorkerUrl(workerUrl)
 
 const STYLE_URL = 'https://tiles.openfreemap.org/styles/positron'
 const UNITED_STATES: [number, number, number, number] = [-125, 24, -66, 50]

@@ -5,8 +5,6 @@ import { defineConfig } from 'vitest/config'
 // port; in production Django serves the built files itself.
 export default defineConfig({
   plugins: [react()],
-  // Pre-bundling MapLibre breaks the URL of its web worker in development.
-  optimizeDeps: { exclude: ['maplibre-gl'] },
   server: {
     proxy: { '/api': 'http://127.0.0.1:8000' },
   },
