@@ -38,7 +38,7 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate          # macOS and Linux: source .venv/bin/activate
 pip install -r requirements.txt
-python manage.py test           # 161 tests, no network needed
+python manage.py test           # 181 tests, no network needed
 python manage.py runserver
 ```
 
@@ -47,7 +47,7 @@ Frontend, in another:
 ```
 cd frontend
 npm ci
-npm test                        # 30 tests
+npm test                        # 46 tests
 npm run dev
 ```
 
@@ -298,11 +298,15 @@ itself and says so while it does.
 repository as a Blueprint and it builds from the `Dockerfile`, generates
 `DJANGO_SECRET_KEY`, and checks `/api/health/`. Render asks a new account
 for a payment method before its first service, though free services are
-not billed. Free services sleep after fifteen idle minutes; the
-`keep-warm` workflow in `.github/workflows` pings the service every ten
-minutes once the repository variable `APP_URL` is set to its address. Set
-the repository's website on GitHub to the same address, since that is
-where the top of this file sends people.
+not billed. The hosted copy is deployed by CI rather than by Render's own
+watch on the repository: once the suites and the image have passed on
+`main`, the `deploy` job asks Render's API to deploy that commit, so a
+red run never reaches the service; it needs the repository secret
+`RENDER_API_KEY` and the variable `RENDER_SERVICE_ID`. Free services
+sleep after fifteen idle minutes; the `keep-warm` workflow pings the
+service every ten minutes once the repository variable `APP_URL` is set
+to its address. Set the repository's website on GitHub to the same
+address, since that is where the top of this file sends people.
 
 Outside `manage.py` the settings are production's unless `DJANGO_DEBUG=1`
 is set: debugging off, a secret key required, HTTPS taken from the
@@ -324,17 +328,18 @@ endpoint and an allowance of one's own.
 
 ## Tests and checks
 
-`python manage.py test` runs the backend's 161 tests: the risk table at
+`python manage.py test` runs the backend's 181 tests: the risk table at
 every boundary, checkpoint placement, the heatmap lattice, the polyline
 decoder against the format's reference, the OSRM stitching, the side-route
 search with its spur and minor-road rules and second routing,
 Open-Meteo windows, chunking, caching and the hours past the model's
-reach, the planner's ranking, the settings under each environment, and
-the API end to end with the services stubbed. Three more run against
+reach, the planner's ranking, the forecast a browser is asked for and
+what it brings back, the settings under each environment, and the API end
+to end with the services stubbed. Three more run against
 the real services when `LIVE_SERVICES=1` is set: the forecast window at
 both ends of the allowed range, and a short trip through the whole
 planner. They exist because the stubs can only check what the code
-expects, not what the services accept. `npm test` runs the frontend's 30:
+expects, not what the services accept. `npm test` runs the frontend's 46:
 time and distance helpers, the form's validation and payload, the place
 suggestions, the route cards, and the app's planning flow with the map
 stubbed out, since jsdom has no WebGL. `npm run e2e`, after `npm run
