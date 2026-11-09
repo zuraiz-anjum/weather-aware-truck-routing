@@ -357,11 +357,21 @@ button.link {
 }
 
 .checkpoints th small {
+  display: block; /* the unit under the name, which keeps the column as narrow as its numbers */
   font-weight: 400;
 }
 
 .checkpoints .num {
   text-align: right;
+}
+
+/* The level and its load-rule mark may take two lines, so the table fits its column. */
+.checkpoints td:last-child {
+  white-space: normal;
+}
+
+.checkpoints td:last-child small {
+  white-space: nowrap; /* the mark moves down whole rather than breaking between its words */
 }
 
 .checkpoints tbody tr {
@@ -500,6 +510,7 @@ button.link {
   height: 26px;
   line-height: 22px;
   font-size: 12px;
+  z-index: 1; /* above the other trucks where the routes share the road */
 }
 
 .truck.arrived {
@@ -512,6 +523,12 @@ button.link {
   font-size: 11px;
   padding: 1px 6px;
   border-radius: 3px;
+  z-index: 1; /* placed after the trucks, so above them */
+}
+
+/* Opened after the markers, so on top of them. */
+.maplibregl-popup {
+  z-index: 1;
 }
 
 .maplibregl-popup-content {
@@ -551,15 +568,6 @@ button.link {
   .checkpoints th,
   .checkpoints td {
     padding: 4px;
-  }
-
-  /* The level and its load-rule mark may take two lines, so the table fits a phone's width. */
-  .checkpoints td:last-child {
-    white-space: normal;
-  }
-
-  .checkpoints td:last-child small {
-    white-space: nowrap; /* the mark moves down whole rather than breaking between its words */
   }
 
   /* One compact strip, so the map keeps most of the height. */

@@ -285,9 +285,10 @@ export default function RouteMap({ plan, selected, hour, onSelect, focus, overla
       new Marker({ element: endElement(plan.origin.label), anchor: 'bottom', offset: [0, -4] }).setLngLat([plan.origin.lon, plan.origin.lat]).addTo(instance),
       new Marker({ element: endElement(plan.destination.label), anchor: 'bottom', offset: [0, -4] }).setLngLat([plan.destination.lon, plan.destination.lat]).addTo(instance),
     ]
-    // The routes are fitted clear of the slider and legend, whatever height they take on this screen.
+    // The routes are fitted clear of the slider and legend, whatever height they take on this screen,
+    // and of the zoom control in the top right corner, which an end label would otherwise sit under.
     const covered = overlay?.current ? container.current!.clientHeight - overlay.current.offsetTop : 0
-    instance.fitBounds(bounds(plan), { padding: { top: 48, right: 48, bottom: covered + 40, left: 48 }, duration: 700, maxZoom: 11 })
+    instance.fitBounds(bounds(plan), { padding: { top: 48, right: 96, bottom: covered + 40, left: 48 }, duration: 700, maxZoom: 11 })
   }, [plan, ready, overlay])
 
   // The chosen route is drawn bold with its checkpoints; the others stay in the background.
