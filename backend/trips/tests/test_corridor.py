@@ -39,19 +39,29 @@ class LatticeTests(SimpleTestCase):
             self.assertAlmostEqual(cell.point[0], (cell.south + cell.north) / 2)
             self.assertAlmostEqual(cell.point[1], (cell.west + cell.east) / 2)
 
+    def test_a_cell_with_a_checkpoint_in_it_is_forecast_at_the_checkpoint(self):
+        line = Polyline(east_west_line(35.0, -100.0, 100))
+        checkpoints = line.sample(25.0)  # miles 0, 25, 50, 75 and 100
+        cells = lattice([line], 10.0, anchors=checkpoints)
+        holding = [c for c in cells if any(c.south <= lat < c.north and c.west <= lon < c.east for lat, lon in checkpoints)]
+        self.assertEqual(len(holding), 5)
+        for cell in holding:
+            self.assertIn(cell.point, checkpoints)
+        self.assertEqual(len([c for c in cells if c.point in checkpoints]), 5)
+
 
 class BuildTests(SimpleTestCase):
     def test_cell_size_follows_the_longest_route_with_a_floor(self):
         short = build([Polyline(east_west_line(35.0, -100.0, 90))])
         self.assertEqual(short.cell_miles, MIN_CELL_MILES)
         long = build([Polyline(east_west_line(35.0, -100.0, 900))])
-        self.assertAlmostEqual(long.cell_miles, 30.0, delta=0.01)
+        self.assertAlmostEqual(long.cell_miles, 900 / corridor.CELLS_ALONG, delta=0.01)
 
     def test_coarsens_until_the_cap_fits(self):
         far_apart = [Polyline(east_west_line(lat, -100.0, 900)) for lat in (30.0, 35.0, 40.0, 45.0)]
         corridor_ = build(far_apart)
         self.assertLessEqual(len(corridor_.cells), MAX_CELLS)
-        self.assertGreater(corridor_.cell_miles, 30.0)
+        self.assertGreater(corridor_.cell_miles, 900 / corridor.CELLS_ALONG)
 
     def test_three_routes_a_little_apart_stay_well_inside_the_cap(self):
         routes = [Polyline(east_west_line(35.0 + k * 0.5, -100.0, 2800)) for k in range(3)]

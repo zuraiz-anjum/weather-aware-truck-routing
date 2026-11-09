@@ -58,7 +58,9 @@ def plan(origin, destination, departure, load_lb, interval=None):
     if interval != requested:
         notes.append("Weather is sampled every %d miles rather than %d on a trip this long." % (interval, requested))
     stops = [checkpoints.place(r.line, r.seconds, interval) for r in routes]
-    band = corridor.build([r.line for r in routes])
+    # A heatmap cell with a checkpoint in it is forecast at the checkpoint,
+    # which the request below then asks for once.
+    band = corridor.build([r.line for r in routes], [(c.lat, c.lon) for route_stops in stops for c in route_stops])
 
     end = departure + max(timedelta(seconds=max(r.duration_seconds for r in routes)), timedelta(hours=SLIDER_HOURS))
     # Rain at the last moment is read from the hour after it, so the trip

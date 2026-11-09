@@ -80,7 +80,7 @@ is on minor roads, meaning roads without a route number and county and
 forest roads whatever their number (OSRM routes a car, and will send it
 down a gravel county road or a parkway that no truck may use; a road whose
 name says highway, freeway or turnpike counts as one, since the map data
-sometimes leaves the number off), less than 85% of it runs within a mile
+sometimes leaves the number off), no more than 85% of it runs within a mile
 of a route already in hand, and it is no more than 1.6 times slower than
 the quickest. Routes found this way are marked as such in the response and
 the card. Every route also reports how many of its miles are on minor
@@ -93,7 +93,9 @@ instead, and keeps the short set for ten minutes rather than a day.
 **Checkpoints and ETAs.** Checkpoints sit every 10, 25 or 50 miles along
 each route, with the destination as the last. The spacing follows the trip
 length unless you choose one; very long trips are coarsened so that a route
-has at most a hundred checkpoints. The time of arrival at each comes from
+has about a hundred checkpoints at most, the spacing widening to fifty
+miles and stopping there, which only a trip of five thousand miles would
+outgrow. The time of arrival at each comes from
 OSRM's per-step driving times, interpolated by distance within a step and
 nudged so the last vertex lands on the route's own time, added to the
 departure. Each checkpoint stands for the stretch of road from it to the
@@ -147,13 +149,14 @@ marked "Not clear to drive", and the ranking is still shown so the least
 bad option and the reason for it are plain.
 
 **Heatmap.** The corridor is a lattice of latitude and longitude cells, a
-band of three along every route, sized so a trip is about thirty cells
+band of three along every route, sized so a trip is about two dozen cells
 long; the legend says how wide they came out. A cell the road runs through
-is forecast at the point of the road nearest its centre rather than at the
-centre itself, so it sees what the road sees; a cell beside the road is
-forecast at its centre. Cells are rated at the slider's hours and
-checkpoints at the truck's minute, so the two agree where and when they
-coincide and can differ by an hour's weather otherwise. Each cell
+is forecast where the road is: at a checkpoint inside it when there is
+one, which costs no extra forecast point, else at the point of the road
+nearest its centre; a cell beside the road is forecast at its centre.
+Cells are rated at the slider's hours and checkpoints at the truck's
+minute, so the two agree where and when they coincide and can differ by
+an hour's weather otherwise. Each cell
 carries its risk level at every hour of the slider, computed once on the
 server with the same rules and the same load. Moving the slider only swaps
 a paint expression on the GPU, so it is instant, and the truck markers move
@@ -212,15 +215,17 @@ hour or the day is spent, and 429 past 20 plans a minute from one address
   with the route times shown.
 - Open-Meteo's free tier counts each point of a request against six
   hundred a minute, five thousand an hour and ten thousand a day. A plan
-  uses one point per distinct checkpoint and heatmap cell, so the heatmap
-  is kept to two hundred cells and a route to a hundred checkpoints, and
-  forecasts are cached for half an hour in windows that run from midnight
-  of the departure day to the first midnight after the trip and the
-  slider, and at least three days, so that departures on the same day for
-  the same trip usually share one fetch; routes for a pair of places are
-  kept for a day. Two or three fresh plans in one minute are fine, and a
-  few dozen a day; past an allowance the API answers 503 with a
-  `Retry-After` and says whether to wait a minute, an hour or a day.
+  uses one point per distinct checkpoint and heatmap cell, a cell holding
+  a checkpoint sharing its point, so the heatmap is kept to a hundred and
+  fifty cells and a route to about a hundred checkpoints: a long trip
+  comes to 160 to 190 points and a short one to 50. Forecasts are cached
+  for half an hour in windows that run from midnight of the departure day
+  to the first midnight after the trip and the slider, and at least three
+  days, so that departures on the same day for the same trip usually share
+  one fetch; routes for a pair of places are kept for a day. Three fresh
+  plans of long trips in one minute are fine, and a few dozen a day; past
+  an allowance the API answers 503 with a `Retry-After` and says whether
+  to wait a minute, an hour or a day.
 - The model runs sixteen days out from its own start, so between midnight
   UTC and the arrival of the day's first run, around 04:30, the last few
   hours of the sixteenth day come back empty. They are cut off the end of
