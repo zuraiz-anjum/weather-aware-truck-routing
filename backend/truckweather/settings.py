@@ -124,6 +124,12 @@ LOGGING = {
 # who they are.
 OSRM_URL = os.environ.get("OSRM_URL", "https://router.project-osrm.org")
 OPEN_METEO_URL = os.environ.get("OPEN_METEO_URL", "https://api.open-meteo.com")
+# A subscription key moves the forecasts to Open-Meteo's customer endpoint,
+# whose allowance is the subscriber's own; the free one is counted by
+# address, which a hosted copy shares with the host's other tenants.
+OPEN_METEO_API_KEY = os.environ.get("OPEN_METEO_API_KEY", "")
+if OPEN_METEO_API_KEY and "OPEN_METEO_URL" not in os.environ:
+    OPEN_METEO_URL = "https://customer-api.open-meteo.com"
 PHOTON_URL = os.environ.get("PHOTON_URL", "https://photon.komoot.io")
 USER_AGENT = "weather-aware-truck-routing/1.0 (zuraizwork@gmail.com)"
 # Connect and read. A coast-to-coast route with every step takes a few

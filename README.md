@@ -305,7 +305,9 @@ content; only the API's JSON is compressed on the way out. It needs `DJANGO_SECR
 `PORT`, and takes `DJANGO_ALLOWED_HOSTS` (Render's own hostname is picked up
 by itself), `NUM_PROXIES` (1 behind a proxy that sets `X-Forwarded-For`),
 `CACHE_DIR`, and `OSRM_URL`, `OPEN_METEO_URL` and `PHOTON_URL` for
-self-hosted copies of the services.
+self-hosted copies of the services. `OPEN_METEO_API_KEY` holds an
+Open-Meteo subscription key, which moves the forecasts to their customer
+endpoint and an allowance of one's own.
 
 ## Tests and checks
 

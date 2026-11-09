@@ -123,6 +123,7 @@ def _fetch(points, start, end):
                 "timeformat": "unixtime",
                 "start_hour": start.strftime("%Y-%m-%dT%H:%M"),
                 "end_hour": end.strftime("%Y-%m-%dT%H:%M"),
+                **({"apikey": settings.OPEN_METEO_API_KEY} if settings.OPEN_METEO_API_KEY else {}),
             },
             headers={"User-Agent": settings.USER_AGENT},
             timeout=settings.HTTP_TIMEOUT,

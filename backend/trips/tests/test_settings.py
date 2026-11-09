@@ -45,6 +45,14 @@ class SettingsTests(SimpleTestCase):
             DJANGO_SECRET_KEY=A_KEY, DJANGO_ALLOWED_HOSTS="trucks.example.com,localhost", RENDER_EXTERNAL_HOSTNAME="trucks.onrender.com")
         self.assertEqual(named.ALLOWED_HOSTS, ["trucks.example.com", "localhost", "trucks.onrender.com", "127.0.0.1", "[::1]"])
 
+    def test_a_subscription_key_moves_the_forecasts_to_the_customer_endpoint(self):
+        keyed = settings_under(DJANGO_DEBUG="1", OPEN_METEO_API_KEY="abc")
+        self.assertEqual(keyed.OPEN_METEO_URL, "https://customer-api.open-meteo.com")
+        # A URL given on purpose is kept, as for a self-hosted copy.
+        own = settings_under(DJANGO_DEBUG="1", OPEN_METEO_API_KEY="abc", OPEN_METEO_URL="http://meteo.internal")
+        self.assertEqual(own.OPEN_METEO_URL, "http://meteo.internal")
+        self.assertEqual(settings_under(DJANGO_DEBUG="1").OPEN_METEO_API_KEY, "")
+
     def test_the_command_line_runs_with_nothing_set(self):
         # manage.py is the development entry point, so it turns debugging on itself.
         environment = {name: value for name, value in os.environ.items() if not name.startswith("DJANGO_")}
