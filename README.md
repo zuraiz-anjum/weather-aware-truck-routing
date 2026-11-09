@@ -225,7 +225,8 @@ hour or the day is spent, and 429 past 20 plans a minute from one address
   one fetch; routes for a pair of places are kept for a day. Three fresh
   plans of long trips in one minute are fine, and a few dozen a day; past
   an allowance the API answers 503 with a `Retry-After` and says whether
-  to wait a minute, an hour or a day.
+  to wait a minute, an hour or a day, and when it is the minute's the page
+  counts it down and asks again by itself.
 - The model runs sixteen days out from its own start, so between midnight
   UTC and the arrival of the day's first run, around 04:30, the last few
   hours of the sixteenth day come back empty. They are cut off the end of

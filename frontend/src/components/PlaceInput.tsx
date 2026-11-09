@@ -104,8 +104,10 @@ export default function PlaceInput({ label, value, onChange, placeholder }: Prop
               role="option"
               aria-selected={index === active}
               className={index === active ? 'active' : undefined}
-              onMouseDown={(event) => {
-                event.preventDefault() // keep the input's focus so blur does not close the list first
+              onPointerDown={(event) => {
+                // Pointer rather than mouse: a finger fires it too, and before the
+                // input loses focus, so blur does not close the list first.
+                event.preventDefault()
                 pick(place)
               }}
             >

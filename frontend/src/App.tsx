@@ -1,5 +1,5 @@
-import { Suspense, lazy, useCallback, useRef, useState } from 'react'
-import { planTrip } from './api'
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
+import { ApiError, planTrip } from './api'
 import CheckpointTable from './components/CheckpointTable'
 import HourSlider from './components/HourSlider'
 import Legend from './components/Legend'
@@ -17,15 +17,19 @@ export default function App() {
   const [error, setError] = useState<string | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const [hour, setHour] = useState(0)
+  const [retryIn, setRetryIn] = useState<number | null>(null) // seconds until a busy weather service is asked again
   const pending = useRef<AbortController | null>(null)
+  const lastRequest = useRef<PlanRequest | null>(null)
   const overlay = useRef<HTMLDivElement>(null)
 
   const submit = useCallback(async (request: PlanRequest) => {
     pending.current?.abort()
     const controller = new AbortController()
     pending.current = controller
+    lastRequest.current = request
     setBusy(true)
     setError(null)
+    setRetryIn(null)
     try {
       const result = await planTrip(request, controller.signal)
       setPlan(result)
@@ -33,15 +37,29 @@ export default function App() {
       setHour(0)
     } catch (failure: unknown) {
       if (failure instanceof DOMException && failure.name === 'AbortError') return
+      // The weather service's allowance for the minute is spent: wait it out and ask again by itself.
+      if (failure instanceof ApiError && failure.status === 503 && failure.retryAfter !== null && failure.retryAfter <= 90) {
+        setRetryIn(failure.retryAfter)
+        return
+      }
       setError(failure instanceof Error ? failure.message : 'Something went wrong.')
     } finally {
       if (pending.current === controller) setBusy(false)
     }
   }, [])
 
+  useEffect(() => {
+    if (retryIn === null || retryIn <= 0) return
+    const timer = setTimeout(() => {
+      if (retryIn > 1) setRetryIn(retryIn - 1)
+      else if (lastRequest.current) void submit(lastRequest.current)
+    }, 1000)
+    return () => clearTimeout(timer)
+  }, [retryIn, submit])
+
   const route = plan?.routes.find((r) => r.id === selected) ?? plan?.routes[0] ?? null
-  // A plan left on screen after a failed attempt is the previous one.
-  const stale = error !== null && plan !== null
+  // A plan left on screen after a failed attempt, or while one is waiting to be retried, is the previous one.
+  const stale = plan !== null && (error !== null || retryIn !== null)
 
   return (
     <div className="app">
@@ -57,6 +75,11 @@ export default function App() {
           <p className="problem" role="alert">
             {error}
             {stale && `${error.endsWith('.') ? '' : '.'} The plan below is the previous one.`}
+          </p>
+        )}
+        {retryIn !== null && (
+          <p className="problem" role="status">
+            The weather service is busy; trying again in {retryIn} s.{stale && ' The plan below is the previous one.'}
           </p>
         )}
         {plan && (

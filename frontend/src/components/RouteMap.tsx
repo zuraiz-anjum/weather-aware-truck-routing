@@ -215,22 +215,31 @@ export default function RouteMap({ plan, selected, hour, onSelect, overlay }: Pr
         instance.getCanvas().style.cursor = ''
         popup.remove()
       })
-      for (const layer of ['checkpoints-other', 'checkpoints']) {
+      const showCheckpoint = (event: MapMouseEvent & { features?: MapGeoJSONFeature[] }) => {
+        const feature = event.features?.[0]
+        if (!feature || feature.geometry.type !== 'Point') return
+        const [lon, lat] = feature.geometry.coordinates
+        const { route, ...checkpoint } = feature.properties as Checkpoint & { route: string }
+        popup.setLngLat([lon, lat]).setHTML(describe(route, checkpoint)).addTo(instance)
+      }
+      const dots = ['checkpoints-other', 'checkpoints'] // the chosen route's layer last, so its dot wins where they coincide
+      for (const layer of dots) {
         instance.on('mouseenter', layer, (event: MapMouseEvent & { features?: MapGeoJSONFeature[] }) => {
-          const feature = event.features?.[0]
-          if (!feature || feature.geometry.type !== 'Point') return
           onDot = true
           instance.getCanvas().style.cursor = 'default'
-          const [lon, lat] = feature.geometry.coordinates
-          const { route, ...checkpoint } = feature.properties as Checkpoint & { route: string }
-          popup.setLngLat([lon, lat]).setHTML(describe(route, checkpoint)).addTo(instance)
+          showCheckpoint(event)
         })
         instance.on('mouseleave', layer, () => {
           onDot = false
           instance.getCanvas().style.cursor = ''
           popup.remove()
         })
+        // A finger cannot hover: a tap on a dot opens the same popup, and a tap anywhere else closes it.
+        instance.on('click', layer, showCheckpoint)
       }
+      instance.on('click', (event: MapMouseEvent) => {
+        if (instance.queryRenderedFeatures(event.point, { layers: dots }).length === 0) popup.remove()
+      })
       setReady(true)
     })
     map.current = instance

@@ -314,6 +314,10 @@ button.link {
 
 /* Checkpoints */
 
+.checkpoints {
+  overflow-x: auto; /* on a narrow screen the table scrolls on its own, not the whole panel */
+}
+
 .checkpoints h3 {
   font-size: 14px;
   font-weight: 600;
@@ -430,7 +434,7 @@ button.link {
   border: 1px solid var(--line);
   border-radius: 3px;
   font-size: 12px;
-  max-width: 340px;
+  max-width: 380px;
 }
 
 .legend ul {
@@ -507,6 +511,13 @@ button.link {
     grid-template-rows: 55vh minmax(0, 1fr);
   }
 
+  /* Measured against the part of the screen the browser's bars leave free. */
+  @supports (height: 1dvh) {
+    .app {
+      grid-template-rows: 55dvh minmax(0, 1fr);
+    }
+  }
+
   .map-area {
     order: -1;
   }
@@ -514,6 +525,17 @@ button.link {
   .panel {
     border-right: none;
     border-top: 1px solid var(--line);
+  }
+
+  /* Under 16px, iOS zooms the page in on a focused field. */
+  .field input,
+  .field select {
+    font-size: 16px;
+  }
+
+  .checkpoints th,
+  .checkpoints td {
+    padding: 4px;
   }
 
   /* One compact strip, so the map keeps most of the height. */

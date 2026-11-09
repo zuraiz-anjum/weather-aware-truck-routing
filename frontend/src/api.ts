@@ -2,10 +2,12 @@ import type { Place, Plan, PlanRequest } from './types'
 
 export class ApiError extends Error {
   status: number
+  retryAfter: number | null // seconds, when the server said how long to wait
 
-  constructor(status: number, detail: string) {
+  constructor(status: number, detail: string, retryAfter: number | null = null) {
     super(detail)
     this.status = status
+    this.retryAfter = retryAfter
   }
 }
 
@@ -20,7 +22,8 @@ async function call<T>(url: string, init: RequestInit): Promise<T> {
   const body = await response.json().catch(() => null)
   if (!response.ok) {
     const detail = body && typeof body.detail === 'string' ? body.detail : `The server answered ${response.status}.`
-    throw new ApiError(response.status, detail)
+    const wait = Number(response.headers.get('Retry-After'))
+    throw new ApiError(response.status, detail, Number.isFinite(wait) && wait > 0 ? wait : null)
   }
   return body as T
 }

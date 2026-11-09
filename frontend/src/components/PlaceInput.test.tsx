@@ -46,7 +46,7 @@ describe('PlaceInput', () => {
     const onChange = vi.fn()
     const { rerender } = render(<PlaceInput label="Origin" value={{ text: 'den' }} onChange={onChange} />)
     await settle()
-    fireEvent.mouseDown(screen.getByText('Denver, Colorado'))
+    fireEvent.pointerDown(screen.getByText('Denver, Colorado'))
     expect(onChange).toHaveBeenLastCalledWith({ text: 'Denver, Colorado', place: DENVER })
     rerender(<PlaceInput label="Origin" value={{ text: 'Denver, Colorado', place: DENVER }} onChange={onChange} />)
     expect(screen.getByText('39.740, -104.980')).toBeTruthy()

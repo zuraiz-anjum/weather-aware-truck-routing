@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { ApiError, planTrip } from './api'
@@ -17,9 +17,11 @@ vi.mock('./api', () => ({
   suggestPlaces: vi.fn().mockResolvedValue([]),
   ApiError: class ApiError extends Error {
     status: number
-    constructor(status: number, detail: string) {
+    retryAfter: number | null
+    constructor(status: number, detail: string, retryAfter: number | null = null) {
       super(detail)
       this.status = status
+      this.retryAfter = retryAfter
     }
   },
 }))
@@ -82,5 +84,25 @@ describe('App', () => {
     await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('try again in a minute'))
     expect(screen.getByRole('alert').textContent).toContain('The plan below is the previous one.')
     expect(document.querySelector('.results.stale')).toBeTruthy()
+  })
+
+  it('waits out a busy weather service and asks again by itself', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.mocked(planTrip)
+        .mockImplementationOnce(() => Promise.reject(new ApiError(503, 'try again in a minute', 2)))
+        .mockResolvedValueOnce(plan())
+      render(<App />)
+      ask()
+      await vi.waitFor(() => expect(screen.getByRole('status').textContent).toBe('The weather service is busy; trying again in 2 s.'))
+      await act(() => vi.advanceTimersByTimeAsync(1000))
+      expect(screen.getByRole('status').textContent).toContain('trying again in 1 s')
+      await act(() => vi.advanceTimersByTimeAsync(1000))
+      await vi.waitFor(() => expect(screen.getByText('Recommended')).toBeTruthy())
+      expect(planTrip).toHaveBeenCalledTimes(2)
+      expect(screen.queryByRole('status')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
