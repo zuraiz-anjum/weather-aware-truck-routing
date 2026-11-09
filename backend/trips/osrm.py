@@ -49,17 +49,20 @@ DETOUR_MAX_MILES = 150.0
 
 # A candidate is a route of its own when its longest stretch of new road is
 # at least MIN_NEW_MILES long with its ends at least SPREAD of that apart
-# (an excursion that leaves a road and comes back to the same place is not
-# a route), when no more than UNNUMBERED_AT_MOST of that stretch is on roads
-# without a route number (OSRM routes a car, and will happily send it down
-# a forest road or a parkway that no truck may use), when less than
-# MOSTLY_SHARED of it runs within a mile of a route already in hand, and
-# when it is no slower than SLOWER_AT_MOST times the quickest: a safer road
-# half as long again is still one a dispatcher would want to see.
+# as the crow flies, so that the road is no more than twice the straight
+# line between its ends (the genuine alternatives tried measure 0.52 to
+# 1.0, a fifty-mile farm-road loop off I-27 0.39, and an excursion that
+# comes back to where it left next to nothing), when no more than
+# MINOR_AT_MOST of that stretch is on minor roads (OSRM routes a car, and
+# will happily send it down a forest road, a gravel county road or a
+# parkway that no truck may use), when less than MOSTLY_SHARED of it runs
+# within a mile of a route already in hand, and when it is no slower than
+# SLOWER_AT_MOST times the quickest: a safer road half as long again is
+# still one a dispatcher would want to see.
 SAMPLE_MILES = 2.0
 MIN_NEW_MILES = 10.0
-SPREAD = 0.4
-UNNUMBERED_AT_MOST = 0.5
+SPREAD = 0.5
+MINOR_AT_MOST = 0.5
 MOSTLY_SHARED = 0.85
 SLOWER_AT_MOST = 1.6
 
@@ -79,28 +82,29 @@ class Route:
     distance_miles: float
     duration_seconds: float
     roads: dict  # road name -> miles driven on it
-    unnumbered: list  # (from mile, to mile, name) of each stretch on a road without a route number
+    minor: list  # (from mile, to mile, name) of each stretch on a minor road, see highway()
     detour: bool  # found through a side point rather than offered by OSRM
 
     @property
-    def unnumbered_miles(self):
-        return sum(to - start for start, to, _ in self.unnumbered)
+    def minor_miles(self):
+        return sum(to - start for start, to, _ in self.minor)
 
-    def unnumbered_between(self, a, b):
-        """Miles of unnumbered road between mile a and mile b."""
-        return sum(max(0.0, min(b, to) - max(a, start)) for start, to, _ in self.unnumbered)
+    def minor_between(self, a, b):
+        """Miles of minor road between mile a and mile b."""
+        return sum(max(0.0, min(b, to) - max(a, start)) for start, to, _ in self.minor)
 
-    def unnumbered_roads(self, limit=2):
-        """The unnumbered roads driven furthest, by name, furthest first."""
+    def minor_roads(self, limit=2):
+        """The minor roads driven furthest, by name, furthest first."""
         miles = {}
-        for start, to, name in self.unnumbered:
+        for start, to, name in self.minor:
             if name:
                 miles[name] = miles.get(name, 0.0) + to - start
         return sorted(miles, key=miles.get, reverse=True)[:limit]
 
 
 Found = namedtuple("Found", "routes missed")  # missed: side requests that failed, when the set is short for it
-Run = namedtuple("Run", "length gap middle unnumbered")
+# A stretch of new road: how long, how far apart its ends are, a point on it, and how much of it is on minor roads.
+Run = namedtuple("Run", "length gap middle minor")
 
 _session = requests.Session()
 
@@ -149,8 +153,10 @@ def admit(origin, destination, routes, jobs):
         if run is None:
             continue
         # Routed once more through its own new road, which gives the road
-        # without the excursion to the side point, and only now, since a
-        # candidate that is not reached is not worth a request.
+        # without the excursion to the side point; the excursion is judged
+        # with the rest, so whether the new road goes anywhere is asked of
+        # both. Only now, since a candidate that is not reached is not worth
+        # a request.
         options = [(candidate, run)]
         try:
             again = via(origin, run.middle, destination)
@@ -159,14 +165,19 @@ def admit(origin, destination, routes, jobs):
             missed += 1
             log.info("side route through its own road failed: %s", exc)
         for option, run in sorted(options, key=lambda pair: pair[0].duration_seconds):
-            if run and run.unnumbered <= UNNUMBERED_AT_MOST * run.length and distinct(option, routes):
+            if run and goes_somewhere(run) and distinct(option, routes):
                 routes.append(option)
                 break
     return missed
 
 
+def goes_somewhere(run):
+    """Whether a stretch of new road is a road of its own: ends far enough apart for its length, and mostly highway."""
+    return run.gap >= SPREAD * run.length and run.minor <= MINOR_AT_MOST * run.length
+
+
 def bridging(route, others):
-    """The longest stretch of `route` that is new road and gets somewhere, or None for a spur."""
+    """The longest stretch of `route`, MIN_NEW_MILES or more, that runs clear of `others`; None when there is none."""
     mine = route.line.sample(SAMPLE_MILES)
     theirs = [p for o in others for p in o.line.sample(SAMPLE_MILES)]
     near = near_mask(mine, theirs, 1.0)
@@ -178,15 +189,15 @@ def bridging(route, others):
         elif is_near and start is not None:
             length = SAMPLE_MILES * (i - start)
             gap = haversine_miles(*mine[max(start - 1, 0)], *mine[min(i, len(mine) - 1)])
-            if length >= MIN_NEW_MILES and gap >= SPREAD * length and (best is None or length > best.length):
+            if length >= MIN_NEW_MILES and (best is None or length > best.length):
                 # The point to route through again: on the new road, as near
                 # its middle as can be, and somewhere the route passes only
                 # once with room on either side, so not on the way out to the
                 # side point and back, nor at the turn.
                 middle = (start + i) // 2
                 single = [k for k in range(start, i) if all(once[max(start, k - 3) : min(i, k + 4)])] or [middle]
-                unnumbered = route.unnumbered_between(start * SAMPLE_MILES, i * SAMPLE_MILES)
-                best = Run(length, gap, mine[min(single, key=lambda k: abs(k - middle))], unnumbered)
+                minor = route.minor_between(start * SAMPLE_MILES, i * SAMPLE_MILES)
+                best = Run(length, gap, mine[min(single, key=lambda k: abs(k - middle))], minor)
             start = None
     return best
 
@@ -251,7 +262,7 @@ def _route(data, detour):
 
 def _stitch(data, detour):
     """One Route from OSRM's legs and steps, with a clock on every vertex."""
-    points, seconds, roads, unnumbered = [], [], {}, []
+    points, seconds, roads, minor = [], [], {}, []
     clock = mile = 0.0
     for leg in data["legs"]:
         for step in leg["steps"]:
@@ -261,12 +272,12 @@ def _stitch(data, detour):
             road = road_name(step)
             if road:
                 roads[road] = roads.get(road, 0.0) + length
-            if length and not numbered(step):
+            if length and not highway(step):
                 name = step.get("name") or ""
-                if unnumbered and unnumbered[-1][1] == mile and unnumbered[-1][2] == name:
-                    unnumbered[-1] = (unnumbered[-1][0], mile + length, name)
+                if minor and minor[-1][1] == mile and minor[-1][2] == name:
+                    minor[-1] = (minor[-1][0], mile + length, name)
                 else:
-                    unnumbered.append((mile, mile + length, name))
+                    minor.append((mile, mile + length, name))
             mile += length
             along = [0.0]
             for a, b in zip(shape, shape[1:]):
@@ -285,7 +296,7 @@ def _stitch(data, detour):
         seconds = [s * duration / clock for s in seconds]
     kept = simplify_indices(points, SHAPE_TOLERANCE_MILES)
     line = Polyline([points[i] for i in kept], distance)
-    return Route(line, [seconds[i] for i in kept], distance, duration, roads, unnumbered, detour)
+    return Route(line, [seconds[i] for i in kept], distance, duration, roads, minor, detour)
 
 
 def road_name(step):
@@ -299,16 +310,17 @@ def road_name(step):
     return step.get("name") or None
 
 
-# A forest road's number is not a route number, and a road whose name says
-# what it is ("US Highway 54 South", "North Sacramento Freeway") is a
-# numbered road that the map data left the ref off.
-FOREST_ROADS = ("NF", "FR", "FS", "NFD")
-HIGHWAY_BY_NAME = re.compile(r"\b(highway|hwy|freeway|fwy|expressway|expy|turnpike|tpke|tollway|interstate)\b", re.I)
+# A county or forest road's number is not one a truck can count on (Grand
+# County Road 1 is gravel), and a road whose name says what it is ("US
+# Highway 54 South", "North Sacramento Freeway") is a highway that the map
+# data left the ref off.
+MINOR_REFS = ("CR", "NF", "FR", "FS", "NFD")
+HIGHWAY_BY_NAME = re.compile(r"\b(highway|hwy|freeway|fwy|express\w*|expy|turnpike|tpke|toll\w*|interstate)\b", re.I)
 
 
-def numbered(step):
-    """Whether a step runs on a road with a route number, which is what a truck can count on."""
+def highway(step):
+    """Whether a step runs on an interstate, US or state highway; anything else is a minor road here."""
     ref = (step.get("ref") or "").split(";")[0].strip()
     if ref:
-        return ref.partition(" ")[0].upper() not in FOREST_ROADS
+        return ref.partition(" ")[0].upper() not in MINOR_REFS
     return bool(HIGHWAY_BY_NAME.search(step.get("name") or ""))

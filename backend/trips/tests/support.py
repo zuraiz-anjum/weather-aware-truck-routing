@@ -39,13 +39,13 @@ def osrm_route(legs, distance_m, duration_s):
     return {"distance": distance_m, "duration": duration_s, "legs": [{"steps": steps} for steps in legs]}
 
 
-def fake_route(points, duration, detour=False, roads=None, unnumbered=()):
+def fake_route(points, duration, detour=False, roads=None, minor=()):
     """A Route driven at a steady speed along the given points."""
     from trips.geometry import Polyline
     from trips.osrm import Route
 
     line = Polyline(points)
-    return Route(line, [m * duration / line.length for m in line.miles], line.length, duration, roads or {}, list(unnumbered), detour)
+    return Route(line, [m * duration / line.length for m in line.miles], line.length, duration, roads or {}, list(minor), detour)
 
 
 def fake_forecast(wind_by_lat=lambda lat: 10.0, rain=0.0, snow=0.0):

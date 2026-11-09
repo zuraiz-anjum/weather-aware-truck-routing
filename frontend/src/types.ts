@@ -55,8 +55,8 @@ export interface Route {
   name: string
   detour: boolean
   distance_miles: number
-  unnumbered_miles: number // on roads without a route number, which a truck may not be allowed on
-  unnumbered_roads: string[] // the furthest-driven of those, by name
+  minor_miles: number // on roads without a route number, or county or forest roads, which a truck may not be allowed on
+  minor_roads: string[] // the furthest-driven of those, by name
   duration_seconds: number
   arrival: string
   geometry: LineString

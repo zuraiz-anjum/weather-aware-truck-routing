@@ -104,8 +104,8 @@ def plan(origin, destination, departure, load_lb, interval=None):
             "name": names[k],
             "detour": route.detour,
             "distance_miles": round(route.distance_miles, 1),
-            "unnumbered_miles": round(route.unnumbered_miles, 1),
-            "unnumbered_roads": route.unnumbered_roads(),
+            "minor_miles": round(route.minor_miles, 1),
+            "minor_roads": route.minor_roads(),
             "duration_seconds": round(route.duration_seconds),
             "arrival": (departure + timedelta(seconds=round(route.duration_seconds))).isoformat(),
             "geometry": {"type": "LineString", "coordinates": [[round(lon, 5), round(lat, 5)] for lat, lon in route.line.points]},
@@ -136,7 +136,7 @@ def find_routes(origin, destination):
     """The routes for a pair of places and how many side requests failed, from the cache when it has them."""
     # The number in the key goes up whenever what is stored changes shape,
     # so that entries written by an older copy of the code are passed over.
-    key = "routes2:%.4f,%.4f:%.4f,%.4f" % (*origin, *destination)
+    key = "routes3:%.4f,%.4f:%.4f,%.4f" % (*origin, *destination)
     found = cache.get(key)
     if found is None:
         found = osrm.find(origin, destination)
