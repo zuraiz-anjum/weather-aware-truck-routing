@@ -6,15 +6,15 @@ with three road routes, the weather each one meets at the hour the truck
 gets there, a risk level for every stretch, a recommendation, and a heatmap
 of the corridor that can be slid through the next forty-eight hours.
 
-The hosted copy runs on a free Render service at
-https://weather-aware-truck-routing.onrender.com; the first request after a
-quiet spell can take half a minute while it wakes. Everything else is in
-this repository: `backend/` is the Django project, `frontend/` the React
-app, and the `Dockerfile` builds both into one image.
+Deployed as described at the end, it runs as one free Render service, at
+https://weather-aware-truck-routing.onrender.com once that service is up;
+the first request after a quiet spell takes half a minute while it wakes.
+Everything is in this repository: `backend/` is the Django project,
+`frontend/` the React app, and the `Dockerfile` builds both into one image.
 
 ## Running it on your own machine
 
-You need Python 3.12 or newer, Node 20 or newer, and an internet connection:
+You need Python 3.12 or newer, Node 22 or newer, and an internet connection:
 the app talks to three public services (routing, weather, place names) that
 need no keys.
 
@@ -25,7 +25,7 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate          # macOS and Linux: source .venv/bin/activate
 pip install -r requirements.txt
-python manage.py test           # 142 tests, no network needed
+python manage.py test           # 150 tests, no network needed
 python manage.py runserver
 ```
 
@@ -34,7 +34,7 @@ Frontend, in another:
 ```
 cd frontend
 npm ci
-npm test                        # 26 tests
+npm test                        # 27 tests
 npm run dev
 ```
 
@@ -67,15 +67,25 @@ middle again. Such a point is an arbitrary spot the road has to leave and
 come back to, so a candidate whose new road gets somewhere is routed once
 more through a point on that new road itself, which gives the road
 without the excursion (Phoenix to Tucson by AZ-79 comes out at 1.36 times
-the interstate's time this way rather than 2.1). A candidate is kept when
-its longest stretch of new road is at least ten miles long with its ends
-at least 40% of that apart (an out-and-back is a spur, not a route), less
-than 85% of it runs within a mile of a route already in hand, and it is no
-more than 1.6 times slower than the quickest. Routes found this way are
-marked as such in the response and the card. Between some places there are
-honestly fewer than three distinct roads, and the app says so; when a
-routing request failed along the way it says that instead, and keeps the
-short set for ten minutes rather than a day.
+the interstate's time this way rather than 2.1); candidates are looked at
+quickest first and the second routing is asked for only when one is
+reached. A candidate is kept when its longest stretch of new road is at
+least ten miles long with its ends at least 40% of that apart (an
+out-and-back is a spur, not a route), no more than half of that stretch is
+on roads without a route number (OSRM routes a car, and will send it down
+a forest road or a parkway that no truck may use; a forest road's own
+number does not count, and a road whose name says highway, freeway or
+turnpike does, since the map data sometimes leaves the number off), less
+than 85% of it
+runs within a mile of a route already in hand, and it is no more than 1.6
+times slower than the quickest. Routes found this way are marked as such
+in the response and the card. Every route also reports how many of its
+miles are on unnumbered roads and names the longest of them; the card says
+so when it is more than a few miles, since even OSRM's own first choice can
+be a parkway. Between some places there are honestly fewer than three
+distinct roads, and the app says so; when a routing request failed along
+the way it says that instead, and keeps the short set for ten minutes
+rather than a day.
 
 **Checkpoints and ETAs.** Checkpoints sit every 10, 25 or 50 miles along
 each route, with the destination as the last. The spacing follows the trip
@@ -87,9 +97,9 @@ departure. Each checkpoint stands for the stretch of road from it to the
 next, which is how a level becomes miles.
 
 **Weather.** Open-Meteo gives hourly wind at 10 m in mph and rain and snow
-in inches for the hour, for up to a hundred points per request, so the
-checkpoints of all three routes and the cells of the heatmap go out in a
-few parallel requests. Rain is Open-Meteo's large-scale rain plus its
+in inches for the hour, for many points in one request; the app asks for a
+hundred at a time, so the checkpoints of all three routes and the cells of
+the heatmap go out in a few parallel requests. Rain is Open-Meteo's large-scale rain plus its
 convective showers, which it reports separately and which carry most of
 the heavy rates. At a checkpoint, wind is read between the two surrounding
 hours and rain and snow are the totals for the hour ahead of the truck: a
@@ -156,9 +166,10 @@ the past or thirteen days less an hour ahead, which with the two days of
 slider after it is what Open-Meteo's sixteen-day forecast allows at any
 time of day. The answer holds the two
 places as resolved, `routes` ranked best first (each with its name,
-distance, driving time, arrival, GeoJSON geometry, checkpoints with ETA,
-weather, levels and any load rule, and a summary with miles by level,
-average risk, rank, whether it is recommended, and the reason), `heatmap`
+distance, miles on roads without a route number and the names of the
+longest of those, driving time, arrival, GeoJSON geometry, checkpoints
+with ETA, weather, levels and any load rule, and a summary with miles by
+level, average risk, rank, whether it is recommended, and the reason), `heatmap`
 as a GeoJSON FeatureCollection of cells with a `levels` array per hour,
 `notes` for anything worth saying, such as only two routes existing, and
 `warning` when no route is clear to drive.
@@ -171,9 +182,9 @@ Errors are `{"detail": "..."}`: 400 for a bad request (with the field errors
 under `errors`), 422 when a plan cannot be made (no road between the places,
 an unknown place, the two places being the same, or a trip running past
 the sixteen-day forecast), 502 when one of the outside services fails, 503
-with `Retry-After` when Open-Meteo's free allowance for the minute is spent,
-and 429 past 20 plans a minute from one address (rejected requests count
-too).
+with `Retry-After` when Open-Meteo's free allowance for the minute, the
+hour or the day is spent, and 429 past 20 plans a minute from one address
+(rejected requests count too).
 
 ## Things worth knowing
 
@@ -223,16 +234,17 @@ self-hosted copies of the services.
 
 ## Tests and checks
 
-`python manage.py test` runs the backend's 142 tests: the risk table at
+`python manage.py test` runs the backend's 150 tests: the risk table at
 every boundary, checkpoint placement, the heatmap lattice, the polyline
 decoder against the format's reference, the OSRM stitching, the side-route
-search with its spur rule and second routing, Open-Meteo windows, chunking
-and caching, the planner's ranking, and the API end to end with the
-services stubbed. Three more run against
+search with its spur and unnumbered-road rules and second routing,
+Open-Meteo windows, chunking, caching and the hours past the model's
+reach, the planner's ranking, and the API end to end with the services
+stubbed. Three more run against
 the real services when `LIVE_SERVICES=1` is set: the forecast window at
 both ends of the allowed range, and a short trip through the whole
 planner. They exist because the stubs can only check what the code
-expects, not what the services accept. `npm test` runs the frontend's 26:
+expects, not what the services accept. `npm test` runs the frontend's 27:
 time and distance helpers, the form's validation and payload, the place
 suggestions, the route cards, and the app's planning flow with the map
 stubbed out, since jsdom has no WebGL. CI runs both suites, the live tests

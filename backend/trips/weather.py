@@ -55,9 +55,8 @@ ALLOWANCES = (("daily", 24 * 3600, "the day", "tomorrow"), ("hourly", 3600, "the
 
 
 def busy(reason):
-    for word, seconds, span, when in ALLOWANCES:
-        if word in reason.lower():
-            break
+    *_, shortest = ALLOWANCES
+    word, seconds, span, when = next((a for a in ALLOWANCES if a[0] in reason.lower()), shortest)
     return WeatherBusy(f"the weather service's free allowance for {span} is spent; try again {when}", seconds)
 
 
@@ -110,7 +109,7 @@ def midnight_after(when):
 
 def _fetch(points, start, end):
     where = hashlib.sha1(",".join("%.4f,%.4f" % p for p in points).encode()).hexdigest()
-    key = "forecast2:%s:%s:%s" % (start.strftime("%Y%m%d%H"), end.strftime("%Y%m%d%H"), where)
+    key = "forecast2:%s:%s:%s" % (start.strftime("%Y%m%d%H"), end.strftime("%Y%m%d%H"), where)  # 2: see planner.find_routes
     found = cache.get(key)
     if found is not None:
         return found

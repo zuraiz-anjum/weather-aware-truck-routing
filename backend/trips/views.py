@@ -87,4 +87,5 @@ def flatten(errors, where=""):
         for item in errors:
             yield from flatten(item, where)
     else:
-        yield f"{where}: {errors}" if where else str(errors)
+        message = str(errors).rstrip(".")  # the lines are joined with semicolons
+        yield f"{where}: {message}" if where else message

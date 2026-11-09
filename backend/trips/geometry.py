@@ -92,13 +92,8 @@ def flat(points):
     return [(lon * kx, lat * MILES_PER_DEGREE) for lat, lon in points]
 
 
-def simplify(points, tolerance_miles):
-    """The vertices that keep the line within tolerance_miles of the original."""
-    return [points[i] for i in simplify_indices(points, tolerance_miles)]
-
-
 def simplify_indices(points, tolerance_miles):
-    """Douglas-Peucker: the indices of the vertices simplify() keeps, ascending."""
+    """Douglas-Peucker: the indices, ascending, of the vertices that keep the line within tolerance_miles of itself."""
     n = len(points)
     if n < 3:
         return list(range(n))

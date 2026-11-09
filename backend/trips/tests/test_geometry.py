@@ -1,9 +1,13 @@
 from django.test import SimpleTestCase
 
-from trips.geometry import MILES_PER_DEGREE, Polyline, haversine_miles, interpolate, passes_once, shared_fraction, simplify
+from trips.geometry import MILES_PER_DEGREE, Polyline, haversine_miles, interpolate, passes_once, shared_fraction, simplify_indices
 
 NEW_YORK = (40.7128, -74.0060)
 LOS_ANGELES = (34.0522, -118.2437)
+
+
+def simplify(points, tolerance_miles):
+    return [points[i] for i in simplify_indices(points, tolerance_miles)]
 
 
 def east_west_line(lat, lon_start, miles, step_miles=1.0):

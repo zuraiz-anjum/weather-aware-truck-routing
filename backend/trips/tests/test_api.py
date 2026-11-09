@@ -67,9 +67,9 @@ class PlanViewTests(CacheTestCase):
 
     def test_validation_errors_are_flattened_into_detail(self):
         cases = [
-            ({"load_lb": None}, "load_lb: This field may not be null."),
-            ({"load_lb": 250000}, "load_lb: Ensure this value is less than or equal to 200000."),
-            ({"interval_miles": 15}, 'interval_miles: "15" is not a valid choice.'),
+            ({"load_lb": None}, "load_lb: This field may not be null"),
+            ({"load_lb": 250000}, "load_lb: Ensure this value is less than or equal to 200000"),
+            ({"interval_miles": 15}, 'interval_miles: "15" is not a valid choice'),
             ({"departure": soon(-3).isoformat()}, "departure: the departure is in the past"),
             ({"departure": (soon() + timedelta(days=13)).isoformat()}, "departure: the departure is too far ahead; the latest is "),
             ({"origin": {"lat": 35.0}}, "origin: give both lat and lon, or neither"),
@@ -88,7 +88,8 @@ class PlanViewTests(CacheTestCase):
         self.assertEqual(response.status_code, 400)
         detail = response.json()["detail"]
         for field in ("origin", "destination", "departure", "load_lb"):
-            self.assertIn(f"{field}: This field is required.", detail)
+            self.assertIn(f"{field}: This field is required", detail)
+        self.assertNotIn(".;", detail)  # the framework's full stops do not run into the semicolons
 
     def test_unplannable_trips_are_422(self):
         self.assertEqual(self.post(origin={"text": "nowhere"}).status_code, 422)
