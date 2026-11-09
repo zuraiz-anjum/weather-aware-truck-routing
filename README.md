@@ -260,7 +260,10 @@ the service every ten minutes once the repository variable `APP_URL` is set
 to its address. Set the repository's website on GitHub to the same address,
 since that is where the top of this file sends people.
 
-The image runs anywhere Docker does. It needs `DJANGO_SECRET_KEY`, honours
+The image runs anywhere Docker does. The React files in it are compressed
+once, when it is built, with brotli and gzip, and WhiteNoise serves the
+stored copies with a year's cache life, since Vite names them by their
+content; only the API's JSON is compressed on the way out. It needs `DJANGO_SECRET_KEY`, honours
 `PORT`, and takes `DJANGO_ALLOWED_HOSTS` (Render's own hostname is picked up
 by itself), `NUM_PROXIES` (1 behind a proxy that sets `X-Forwarded-For`),
 `CACHE_DIR`, and `OSRM_URL`, `OPEN_METEO_URL` and `PHOTON_URL` for

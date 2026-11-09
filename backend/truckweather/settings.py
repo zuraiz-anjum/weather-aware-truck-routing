@@ -70,6 +70,12 @@ USE_TZ = True
 # bundles with a content hash, so they can be cached for good.
 STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    # Compressed copies are written beside the files when they are collected,
+    # as the Dockerfile does for the React build, and served in their place.
+    "staticfiles": {"BACKEND": "whitenoise.storage.CompressedStaticFilesStorage"},
+}
 WHITENOISE_ROOT = FRONTEND_DIST
 WHITENOISE_INDEX_FILE = True
 WHITENOISE_IMMUTABLE_FILE_TEST = lambda path, url: "/assets/" in url

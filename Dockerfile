@@ -18,7 +18,10 @@ RUN pip install --no-cache-dir -r backend/requirements.txt
 COPY backend/ backend/
 COPY --from=frontend /build/dist frontend/dist/
 WORKDIR /app/backend
+# The built files are compressed here, once, with brotli and gzip; WhiteNoise
+# then hands out the stored copies and nothing is compressed per request.
 RUN DJANGO_SECRET_KEY=build-time-only python manage.py collectstatic --noinput \
+    && python -m whitenoise.compress -q ../frontend/dist \
     && useradd --system --create-home app \
     && chown -R app:app /app
 USER app
