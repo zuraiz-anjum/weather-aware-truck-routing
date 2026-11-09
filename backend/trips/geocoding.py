@@ -14,8 +14,10 @@ from django.conf import settings
 from django.core.cache import cache
 
 # Photon has no country filter, so the search is boxed to the United States
-# and its territories and the answers checked by country code.
-BOUNDS = "-180,15,-64,72"
+# and its territories and the answers checked by country code. Coordinates
+# given directly are held to the same box.
+WEST, SOUTH, EAST, NORTH = -180, 15, -64, 72
+BOUNDS = "%d,%d,%d,%d" % (WEST, SOUTH, EAST, NORTH)
 CACHE_SECONDS = 24 * 3600
 
 

@@ -322,5 +322,5 @@ def highway(step):
     """Whether a step runs on an interstate, US or state highway; anything else is a minor road here."""
     ref = (step.get("ref") or "").split(";")[0].strip()
     if ref:
-        return ref.partition(" ")[0].upper() not in MINOR_REFS
+        return re.split(r"[\s-]", ref, maxsplit=1)[0].upper() not in MINOR_REFS  # "NF 25" and "NF-25" both occur
     return bool(HIGHWAY_BY_NAME.search(step.get("name") or ""))

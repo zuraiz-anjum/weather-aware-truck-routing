@@ -168,11 +168,11 @@ class RoadNameTests(SimpleTestCase):
         self.assertIsNone(road_name({}))
 
     def test_which_roads_count_as_highways(self):
-        for step in ({"ref": "I 40"}, {"ref": "US 54; NM 2"}, {"ref": "FM 1960"},
+        for step in ({"ref": "I 40"}, {"ref": "I-80"}, {"ref": "US 54; NM 2"}, {"ref": "FM 1960"},
                      {"name": "US Highway 54 South"}, {"name": "North Sacramento Freeway"},
                      {"name": "Homestead Extension of Florida's Turnpike"}, {"name": "Old Hwy 99"}, {"name": "Express Toll Lanes"}):
             self.assertTrue(highway(step), step)
-        for step in ({"ref": "NF 15"}, {"ref": "CR 1", "name": "County Road 1"}, {"ref": "CR 61", "name": "Mill Road"}, {"ref": "FR 077", "name": "National Forest Development Road 077"},
+        for step in ({"ref": "NF 15"}, {"ref": "NF-25"}, {"ref": "CR-61"}, {"ref": "CR 1", "name": "County Road 1"}, {"ref": "CR 61", "name": "Mill Road"}, {"ref": "FR 077", "name": "National Forest Development Road 077"},
                      {"name": "Saw Mill River Parkway"}, {"name": "Camp Creek Road"}, {"name": "Highwayman Lane"}, {}):
             self.assertFalse(highway(step), step)
 

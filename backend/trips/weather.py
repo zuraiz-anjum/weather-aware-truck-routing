@@ -21,7 +21,7 @@ from django.core.cache import cache
 
 from .geometry import interpolate
 
-VARIABLES =("wind_speed_10m", "rain", "showers", "snowfall")
+VARIABLES = ("wind_speed_10m", "rain", "showers", "snowfall")
 POINTS_PER_REQUEST = 100
 PARALLEL_REQUESTS = 4
 

@@ -228,7 +228,9 @@ class DescribeTests(CacheTestCase):
     def test_a_road_shared_with_the_others_is_named_when_nothing_sets_the_route_apart(self):
         a = fake_route(east_west_line(35.0, -100.0, 400), 3600, roads={"I-40": 250.0, "I-75": 140.0, "SR-9": 10.0})
         b = fake_route(east_west_line(35.5, -100.0, 400), 3600, roads={"I-40": 250.0, "I-75": 140.0, "SR-11": 10.0})
-        self.assertEqual(describe([a, b]), ["via I-40 and I-75", "via I-40 and I-75"])
+        # ...and since that names them alike, the small road that differs is added.
+        self.assertEqual(describe([a, b]), ["via I-40, I-75 and SR-9", "via I-40, I-75 and SR-11"])
+        self.assertEqual(describe([a]), ["via I-40 and I-75"])
 
     def test_an_interstate_is_named_before_a_longer_state_road(self):
         a = fake_route(east_west_line(35.0, -100.0, 700), 3600, roads={"I-65": 400.0, "SR-111": 60.0, "I-24": 50.0, "I-75": 190.0})
@@ -239,6 +241,12 @@ class DescribeTests(CacheTestCase):
         self.assertEqual(describe([three_routes()[1]]), ["via I-40 and US-60"])
         self.assertEqual(describe([fake_route(east_west_line(35.0, -100.0, 200), 3600, roads={"I-40": 195.0, "Elm Street": 5.0})]),
                          ["via I-40"])
+
+    def test_routes_named_alike_are_told_apart_by_whatever_road_differs(self):
+        # Denver to Grand Junction: two I-70 routes whose only difference is a few miles each.
+        a = fake_route(east_west_line(39.7, -105.0, 243), 16740, roads={"I-70": 230.0, "US-6": 8.0, "I-70 Business": 5.0})
+        b = fake_route(east_west_line(39.7, -105.0, 266), 18240, roads={"I-70": 252.0, "CO-9": 6.0, "I-70 Business": 5.0}, detour=True)
+        self.assertEqual(describe([a, b]), ["via I-70 and US-6", "via I-70 and CO-9"])
 
     def test_a_short_detour_is_told_apart_by_a_few_miles_of_another_road(self):
         a = fake_route(east_west_line(39.7, -105.0, 68), 4800, roads={"I-25": 68.0})

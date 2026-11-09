@@ -73,6 +73,7 @@ class PlanViewTests(CacheTestCase):
             ({"departure": soon(-3).isoformat()}, "departure: the departure is in the past"),
             ({"departure": (soon() + timedelta(days=13)).isoformat()}, "departure: the departure is too far ahead; the latest is "),
             ({"origin": {"lat": 35.0}}, "origin: give both lat and lon, or neither"),
+            ({"origin": {"lat": 48.85, "lon": 2.35}}, "origin: coordinates are outside North America"),
             ({"origin": {"text": "  "}}, "origin: give a place name or coordinates"),
             ({"departure": "yesterday"}, "departure: Datetime has wrong format"),
         ]

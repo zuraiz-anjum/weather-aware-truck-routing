@@ -3,6 +3,7 @@ from datetime import datetime, timedelta, timezone
 from rest_framework import serializers
 
 from .checkpoints import INTERVALS
+from .geocoding import EAST, NORTH, SOUTH, WEST
 
 # A dispatcher plans the week ahead; further out the forecast is weather
 # lore. Open-Meteo stops at 23:00 UTC on the sixteenth day counting today,
@@ -26,6 +27,8 @@ class PlaceInput(serializers.Serializer):
             raise serializers.ValidationError("give both lat and lon, or neither")
         if "lat" not in data and not data.get("text"):
             raise serializers.ValidationError("give a place name or coordinates")
+        if "lat" in data and not (SOUTH <= data["lat"] <= NORTH and WEST <= data["lon"] <= EAST):
+            raise serializers.ValidationError("coordinates are outside North America, which is as far as the app goes")
         return data
 
 

@@ -210,27 +210,45 @@ def describe(routes):
     state road, since that is how a dispatcher thinks of a route; failing
     any such road, the longest other road worth mentioning.
     """
-    out = []
-    for route in routes:
-        if not route.roads:
-            out.append("via local roads")
-            continue
-        others = [o for o in routes if o is not route]
-        worth = max(10.0, 0.05 * route.distance_miles)
-        top = max(route.roads, key=route.roads.get)
-        apart = {
-            road: miles - max((o.roads.get(road, 0.0) for o in others), default=0.0)
-            for road, miles in route.roads.items()
-            if road != top
-        }
-        own = [road for road, miles in apart.items() if miles >= worth]
-        if own:
-            second = max(own, key=lambda road: (road_class(road), apart[road]))
-        else:
-            rest = [road for road, miles in route.roads.items() if road != top and miles >= 2 * worth]
-            second = max(rest, key=lambda road: (road_class(road), route.roads[road])) if rest else None
-        out.append(f"via {top} and {second}" if second else f"via {top}")
+    named = [(route, *roads_of(route, routes, max(10.0, 0.05 * route.distance_miles))) for route in routes]
+    out = [phrase(top, second) for _, top, second in named]
+    # Two routes named alike are told apart by whatever road differs, however short.
+    alike = {n for n in out if out.count(n) > 1}
+    for k, (route, top, second) in enumerate(named):
+        if out[k] in alike:
+            out[k] = phrase(top, second, own_road(route, routes, 1.0, besides=(top, second)))
     return out
+
+
+def roads_of(route, routes, worth):
+    """The road a route drives most and the one that sets it apart from the others; either may be None."""
+    if not route.roads:
+        return None, None
+    top = max(route.roads, key=route.roads.get)
+    second = own_road(route, routes, worth, besides=(top,))
+    if second is None:
+        rest = [road for road, miles in route.roads.items() if road != top and miles >= 2 * worth]
+        second = max(rest, key=lambda road: (road_class(road), route.roads[road])) if rest else None
+    return top, second
+
+
+def own_road(route, routes, worth, besides):
+    """The road on which this route drives at least `worth` miles more than any other does, or None."""
+    others = [o for o in routes if o is not route]
+    apart = {
+        road: miles - max((o.roads.get(road, 0.0) for o in others), default=0.0)
+        for road, miles in route.roads.items()
+        if road not in besides
+    }
+    own = [road for road, miles in apart.items() if miles >= worth]
+    return max(own, key=lambda road: (road_class(road), apart[road])) if own else None
+
+
+def phrase(top, second=None, third=None):
+    if top is None:
+        return "via local roads"
+    roads = [road for road in (top, second, third) if road]
+    return "via " + (" and ".join(roads) if len(roads) < 3 else f"{roads[0]}, {roads[1]} and {roads[2]}")
 
 
 def road_class(road):
