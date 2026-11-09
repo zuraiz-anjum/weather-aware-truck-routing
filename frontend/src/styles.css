@@ -382,7 +382,7 @@ button.link {
   position: absolute;
   left: 12px;
   right: 12px;
-  bottom: 30px;
+  bottom: 34px;
   display: flex;
   gap: 12px;
   align-items: stretch;
@@ -514,7 +514,7 @@ button.link {
 
   /* One compact strip, so the map keeps most of the height. */
   .map-controls {
-    bottom: 22px;
+    bottom: 26px;
     flex-direction: column;
     gap: 6px;
   }

@@ -25,7 +25,7 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate          # macOS and Linux: source .venv/bin/activate
 pip install -r requirements.txt
-python manage.py test           # 150 tests, no network needed
+python manage.py test           # 152 tests, no network needed
 python manage.py runserver
 ```
 
@@ -70,22 +70,24 @@ without the excursion (Phoenix to Tucson by AZ-79 comes out at 1.36 times
 the interstate's time this way rather than 2.1); candidates are looked at
 quickest first and the second routing is asked for only when one is
 reached. A candidate is kept when its longest stretch of new road is at
-least ten miles long with its ends at least 40% of that apart (an
-out-and-back is a spur, not a route), no more than half of that stretch is
-on roads without a route number (OSRM routes a car, and will send it down
-a forest road or a parkway that no truck may use; a forest road's own
-number does not count, and a road whose name says highway, freeway or
-turnpike does, since the map data sometimes leaves the number off), less
-than 85% of it
-runs within a mile of a route already in hand, and it is no more than 1.6
-times slower than the quickest. Routes found this way are marked as such
-in the response and the card. Every route also reports how many of its
-miles are on unnumbered roads and names the longest of them; the card says
-so when it is more than a few miles, since even OSRM's own first choice can
-be a parkway. Between some places there are honestly fewer than three
-distinct roads, and the app says so; when a routing request failed along
-the way it says that instead, and keeps the short set for ten minutes
-rather than a day.
+least ten miles long with its ends at least half that far apart as the
+crow flies, so that the new road is at most twice the straight line
+between its ends (the genuine alternatives tried measure 0.52 to 1.0, a
+fifty-mile farm-road loop off I-27 0.39, and an out-and-back excursion
+next to nothing), no more than half of that
+stretch is on minor roads, meaning roads without a route number and county
+and forest roads whatever their number (OSRM routes a car, and will send it
+down a gravel county road or a parkway that no truck may use; a road whose
+name says highway, freeway or turnpike counts as one, since the map data
+sometimes leaves the number off), less than 85% of it runs within a mile
+of a route already in hand, and it is no more than 1.6 times slower than
+the quickest. Routes found this way are marked as such in the response and
+the card. Every route also reports how many of its miles are on minor
+roads and names the longest of them; the card says so when it is more than
+a few miles, since even OSRM's own first choice can be a parkway. Between
+some places there are honestly fewer than three distinct roads, and the
+app says so; when a routing request failed along the way it says that
+instead, and keeps the short set for ten minutes rather than a day.
 
 **Checkpoints and ETAs.** Checkpoints sit every 10, 25 or 50 miles along
 each route, with the destination as the last. The spacing follows the trip
@@ -117,7 +119,10 @@ every heatmap cell:
 
 Each band owns its lower bound, so 35 mph is High and 0.25 in/h is High;
 the top band follows the brief's own signs (wind from 55 mph, rain over
-1.00, snow over 3.0). The worst of the three factors is the level. The load
+1.00, snow over 3.0). Values are judged as they are shown, wind to the mile
+an hour and rain and snow to the hundredth of an inch, so a figure that
+reads 25 mph or 0.10 in/h is in the band it appears to be in. The worst of
+the three factors is the level. The load
 rules then apply to wind: 55 mph or more is No Travel for any load, 45–54
 mph with more than 30,000 lb is No Travel, and 35–44 mph with more than
 40,000 lb is Severe. When a load rule has changed a checkpoint's level the
@@ -138,8 +143,9 @@ bad option and the reason for it are plain.
 **Heatmap.** The corridor is a lattice of latitude and longitude cells, a
 band of three along every route, sized so a trip is about thirty cells
 long; the legend says how wide they came out. A cell the road runs through
-is forecast at a point on the road, so it agrees with the checkpoints
-inside it; a cell beside the road is forecast at its centre. Each cell
+is forecast at a point on the road, so it reads the same forecast as a
+checkpoint inside it, though at the slider's hour rather than the truck's
+minute; a cell beside the road is forecast at its centre. Each cell
 carries its risk level at every hour of the slider, computed once on the
 server with the same rules and the same load. Moving the slider only swaps
 a paint expression on the GPU, so it is instant, and the truck markers move
@@ -166,8 +172,8 @@ the past or thirteen days less an hour ahead, which with the two days of
 slider after it is what Open-Meteo's sixteen-day forecast allows at any
 time of day. The answer holds the two
 places as resolved, `routes` ranked best first (each with its name,
-distance, miles on roads without a route number and the names of the
-longest of those, driving time, arrival, GeoJSON geometry, checkpoints
+distance, miles on minor roads and the names of the longest of those,
+driving time, arrival, GeoJSON geometry, checkpoints
 with ETA, weather, levels and any load rule, and a summary with miles by
 level, average risk, rank, whether it is recommended, and the reason), `heatmap`
 as a GeoJSON FeatureCollection of cells with a `levels` array per hour,
@@ -210,7 +216,10 @@ hour or the day is spent, and 429 past 20 plans a minute from one address
   departure the form allows does not. An hour the model has no value for
   inside the trip refuses the plan rather than reading as calm.
 - Routes are cached without regard to the load, since OSRM routes a car:
-  the load only enters the risk rules.
+  the load only enters the risk rules. A pair costs OSRM one request when
+  it offers three routes itself, four or five when one side point is
+  needed, and up to seventeen when every round is tried; that is paid once
+  a day per pair.
 - Wind is sustained wind at 10 m. Gusts are higher; the brief's thresholds
   are for wind, so that is what is used.
 - The map is MapLibre GL over OpenFreeMap's vector tiles, which need no key.
@@ -234,7 +243,7 @@ self-hosted copies of the services.
 
 ## Tests and checks
 
-`python manage.py test` runs the backend's 150 tests: the risk table at
+`python manage.py test` runs the backend's 152 tests: the risk table at
 every boundary, checkpoint placement, the heatmap lattice, the polyline
 decoder against the format's reference, the OSRM stitching, the side-route
 search with its spur and unnumbered-road rules and second routing,

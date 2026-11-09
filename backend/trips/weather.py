@@ -10,7 +10,6 @@ rules are about how hard it is raining, not why.
 """
 
 import hashlib
-import logging
 from bisect import bisect_right
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -22,9 +21,7 @@ from django.core.cache import cache
 
 from .geometry import interpolate
 
-log = logging.getLogger(__name__)
-
-VARIABLES = ("wind_speed_10m", "rain", "showers", "snowfall")
+VARIABLES =("wind_speed_10m", "rain", "showers", "snowfall")
 POINTS_PER_REQUEST = 100
 PARALLEL_REQUESTS = 4
 

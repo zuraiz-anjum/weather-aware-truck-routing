@@ -5,6 +5,7 @@ import HourSlider from './components/HourSlider'
 import Legend from './components/Legend'
 import RouteCards from './components/RouteCards'
 import TripForm from './components/TripForm'
+import { formatTime } from './time'
 import type { Plan, PlanRequest } from './types'
 
 // MapLibre is most of the bundle; the form is usable while it is still arriving.
@@ -63,6 +64,9 @@ export default function App() {
             <h2>
               {plan.origin.label} <span className="muted">to</span> {plan.destination.label}
             </h2>
+            <p className="small muted">
+              {plan.load_lb.toLocaleString()} lb, leaving {formatTime(plan.departure)}
+            </p>
             {plan.warning && <p className="warning">{plan.warning}</p>}
             {plan.notes.map((note) => (
               <p key={note} className="note">
