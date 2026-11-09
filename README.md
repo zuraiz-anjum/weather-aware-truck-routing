@@ -26,7 +26,7 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate          # macOS and Linux: source .venv/bin/activate
 pip install -r requirements.txt
-python manage.py test           # 154 tests, no network needed
+python manage.py test           # 156 tests, no network needed
 python manage.py runserver
 ```
 
@@ -35,7 +35,7 @@ Frontend, in another:
 ```
 cd frontend
 npm ci
-npm test                        # 27 tests
+npm test                        # 28 tests
 npm run dev
 ```
 
@@ -222,12 +222,13 @@ hour or the day is spent, and 429 past 20 plans a minute from one address
   uses one point per distinct checkpoint and heatmap cell, a cell holding
   a checkpoint sharing its point, so the heatmap is kept to a hundred and
   fifty cells and a route to about a hundred checkpoints: a long trip
-  comes to 160 to 190 points and a short one to 50. Forecasts are cached
+  comes to 160 to 190 points, coast to coast about 230, and a short one to
+  50. Forecasts are cached
   for half an hour in windows that run from midnight of the departure day
   to the first midnight after the trip and the slider, and at least three
   days, so that departures on the same day for the same trip usually share
-  one fetch; routes for a pair of places are kept for a day. Three fresh
-  plans of long trips in one minute are fine, and a few dozen a day; past
+  one fetch; routes for a pair of places are kept for a day. Two or three
+  fresh plans of long trips in one minute are fine, and a few dozen a day; past
   an allowance the API answers 503 with a `Retry-After` and says whether
   to wait a minute, an hour or a day, and when it is the minute's the page
   counts it down and asks again by itself.
@@ -238,8 +239,9 @@ hour or the day is spent, and 429 past 20 plans a minute from one address
   departure the form allows does not. An hour the model has no value for
   inside the trip refuses the plan rather than reading as calm.
 - Routes are cached without regard to the load, since OSRM routes a car:
-  the load only enters the risk rules. A pair costs OSRM one request when
-  it offers three routes itself, four or five when one side point is
+  the load only enters the risk rules. A pair costs OSRM three requests
+  when it offers three routes itself (the first pair of side points goes
+  out alongside the main request), four or five when one side point is
   needed, and up to seventeen when every round is tried; that is paid once
   a day per pair.
 - Wind is sustained wind at 10 m. Gusts are higher; the brief's thresholds
@@ -266,7 +268,7 @@ self-hosted copies of the services.
 
 ## Tests and checks
 
-`python manage.py test` runs the backend's 154 tests: the risk table at
+`python manage.py test` runs the backend's 156 tests: the risk table at
 every boundary, checkpoint placement, the heatmap lattice, the polyline
 decoder against the format's reference, the OSRM stitching, the side-route
 search with its spur and minor-road rules and second routing,
@@ -276,7 +278,7 @@ stubbed. Three more run against
 the real services when `LIVE_SERVICES=1` is set: the forecast window at
 both ends of the allowed range, and a short trip through the whole
 planner. They exist because the stubs can only check what the code
-expects, not what the services accept. `npm test` runs the frontend's 27:
+expects, not what the services accept. `npm test` runs the frontend's 28:
 time and distance helpers, the form's validation and payload, the place
 suggestions, the route cards, and the app's planning flow with the map
 stubbed out, since jsdom has no WebGL. CI runs both suites, the live tests
