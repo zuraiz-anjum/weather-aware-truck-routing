@@ -84,7 +84,7 @@ jobs:
   # red run never reaches the service. RENDER_API_KEY is a repository
   # secret and RENDER_SERVICE_ID a variable; without them nothing is deployed.
   deploy:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.RENDER_SERVICE_ID != ''
+    if: github.ref == 'refs/heads/main' && vars.RENDER_SERVICE_ID != ''
     needs: [backend, frontend, image]
     runs-on: ubuntu-latest
     steps:
