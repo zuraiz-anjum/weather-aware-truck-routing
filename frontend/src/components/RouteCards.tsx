@@ -1,5 +1,6 @@
 import { levelColor, levelInk, levelName } from '../risk'
 import { formatDuration, formatTime } from '../time'
+import { sentence } from '../words'
 import type { Level, Plan, Route } from '../types'
 
 interface Props {
@@ -60,7 +61,7 @@ function RouteCard({ route, selected, onSelect }: { route: Route; selected: bool
           </>
         )}
       </p>
-      {summary.reason && <p className="reason">{summary.reason[0].toUpperCase() + summary.reason.slice(1)}.</p>}
+      {summary.reason && <p className="reason">{sentence(summary.reason)}</p>}
       {route.detour && <p className="small muted">Found by routing through a point to one side of the direct line.</p>}
       {worthAWord(route) && (
         // On the recommended route this is the one thing the tag does not vouch for, so it is not muted.

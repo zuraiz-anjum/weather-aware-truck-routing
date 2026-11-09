@@ -81,7 +81,7 @@ describe('App', () => {
     vi.mocked(planTrip).mockImplementation(() => Promise.reject(new ApiError(422, 'no road route between those places')))
     render(<App />)
     ask()
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('no road route between those places'))
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('No road route between those places.'))
     expect(screen.queryByText('Recommended')).toBeNull()
   })
 
@@ -100,8 +100,7 @@ describe('App', () => {
     await waitFor(() => expect(screen.getByText('Recommended')).toBeTruthy())
     vi.mocked(planTrip).mockImplementation(() => Promise.reject(new ApiError(503, 'try again in a minute')))
     ask()
-    await waitFor(() => expect(screen.getByRole('alert').textContent).toContain('try again in a minute'))
-    expect(screen.getByRole('alert').textContent).toContain('The plan below is the previous one.')
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Try again in a minute. The plan below is the previous one.'))
     expect(document.querySelector('.results.stale')).toBeTruthy()
   })
 
@@ -137,7 +136,7 @@ describe('App', () => {
       await vi.waitFor(() => expect(planTrip).toHaveBeenCalledTimes(2))
       await vi.waitFor(() => expect(screen.getByText(/Trying again in 2 s\./)).toBeTruthy())
       await seconds(2)
-      await vi.waitFor(() => expect(screen.getByRole('alert').textContent).toBe('try again in a minute'))
+      await vi.waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Try again in a minute.'))
       expect(planTrip).toHaveBeenCalledTimes(3)
       expect(screen.queryByRole('status')).toBeNull()
     } finally {

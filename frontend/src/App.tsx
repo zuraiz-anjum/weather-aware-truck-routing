@@ -6,6 +6,7 @@ import Legend from './components/Legend'
 import RouteCards from './components/RouteCards'
 import TripForm from './components/TripForm'
 import { formatTime } from './time'
+import { sentence } from './words'
 import type { Checkpoint, Plan, PlanRequest } from './types'
 
 // MapLibre is most of the bundle; the form is usable while it is still arriving.
@@ -83,8 +84,8 @@ export default function App() {
         <TripForm onSubmit={submit} busy={busy} />
         {error && (
           <p className="problem" role="alert">
-            {error}
-            {stale && `${error.endsWith('.') ? '' : '.'} The plan below is the previous one.`}
+            {sentence(error)}
+            {stale && ' The plan below is the previous one.'}
           </p>
         )}
         {retryIn !== null && (
