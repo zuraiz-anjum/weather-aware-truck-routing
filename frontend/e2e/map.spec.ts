@@ -8,7 +8,8 @@ function complaints(page: Page): string[] {
   const found: string[] = []
   page.on('pageerror', (error) => found.push(error.message))
   page.on('console', (message) => {
-    if (message.type() === 'error') found.push(message.text())
+    // The tile server's own failures, such as a glyph range it has not got, are not the app's.
+    if (message.type() === 'error' && !message.location().url.includes('tiles.openfreemap.org')) found.push(message.text())
   })
   return found
 }

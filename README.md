@@ -271,7 +271,7 @@ site is called.
 
 The image runs anywhere Docker does. The React files in it are compressed
 once, when it is built, with brotli and gzip, and WhiteNoise serves the
-stored copies with a year's cache life, since Vite names them by their
+stored copies with a ten-year cache life, since Vite names them by their
 content; only the API's JSON is compressed on the way out. It needs `DJANGO_SECRET_KEY`, honours
 `PORT`, and takes `DJANGO_ALLOWED_HOSTS` (Render's own hostname is picked up
 by itself), `NUM_PROXIES` (1 behind a proxy that sets `X-Forwarded-For`),
