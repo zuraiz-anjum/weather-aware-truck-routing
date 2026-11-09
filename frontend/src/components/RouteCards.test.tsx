@@ -53,7 +53,8 @@ describe('RouteCards', () => {
     forest.routes[0] = { ...forest.routes[0], minor_miles: 31.2, minor_roads: ['Kepps Crossing Road', 'Forest Road 077'] }
     forest.routes[1] = { ...forest.routes[1], minor_miles: 6.0, minor_roads: ['Main Street'] }
     render(<RouteCards plan={forest} selected="A" onSelect={vi.fn()} />)
-    expect(screen.getByText(/31 mi on minor roads \(Kepps Crossing Road, Forest Road 077\); check they take trucks\./)).toBeTruthy()
+    const line = screen.getByText(/31 mi on minor roads \(Kepps Crossing Road, Forest Road 077\); check they take trucks\./)
+    expect(line.className).toBe('small caution') // the recommended route's caveat is not muted
     expect(screen.queryByText(/Main Street/)).toBeNull()
   })
 })

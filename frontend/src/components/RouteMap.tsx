@@ -215,7 +215,7 @@ export default function RouteMap({ plan, selected, hour, onSelect, overlay }: Pr
         instance.getCanvas().style.cursor = ''
         popup.remove()
       })
-      for (const layer of ['checkpoints', 'checkpoints-other']) {
+      for (const layer of ['checkpoints-other', 'checkpoints']) {
         instance.on('mouseenter', layer, (event: MapMouseEvent & { features?: MapGeoJSONFeature[] }) => {
           const feature = event.features?.[0]
           if (!feature || feature.geometry.type !== 'Point') return

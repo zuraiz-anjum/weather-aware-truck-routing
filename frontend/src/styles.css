@@ -204,6 +204,10 @@ button.link {
   font-weight: 600;
 }
 
+.caution {
+  color: var(--danger);
+}
+
 .results > * + * {
   margin-top: 12px;
 }
@@ -382,7 +386,7 @@ button.link {
   position: absolute;
   left: 12px;
   right: 12px;
-  bottom: 34px;
+  bottom: 40px;
   display: flex;
   gap: 12px;
   align-items: stretch;
@@ -514,7 +518,7 @@ button.link {
 
   /* One compact strip, so the map keeps most of the height. */
   .map-controls {
-    bottom: 26px;
+    bottom: 40px;
     flex-direction: column;
     gap: 6px;
   }

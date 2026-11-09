@@ -63,7 +63,8 @@ function RouteCard({ route, selected, onSelect }: { route: Route; selected: bool
       {summary.reason && <p className="reason">{summary.reason[0].toUpperCase() + summary.reason.slice(1)}.</p>}
       {route.detour && <p className="small muted">Found by routing through a point to one side of the direct line.</p>}
       {worthAWord(route) && (
-        <p className="small muted">
+        // On the recommended route this is the one thing the tag does not vouch for, so it is not muted.
+        <p className={summary.recommended ? 'small caution' : 'small muted'}>
           {Math.round(route.minor_miles)} mi on minor roads
           {route.minor_roads.length > 0 && ` (${route.minor_roads.join(', ')})`}; check they take trucks.
         </p>
