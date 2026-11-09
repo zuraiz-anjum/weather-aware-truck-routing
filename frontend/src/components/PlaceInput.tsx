@@ -23,6 +23,7 @@ export default function PlaceInput({ label, value, onChange, placeholder }: Prop
   const [active, setActive] = useState(-1)
   const [failed, setFailed] = useState(false)
   const pending = useRef<AbortController | null>(null)
+  const focused = useRef(false)
 
   const wanted = !value.place && value.text.trim().length >= 2
 
@@ -37,7 +38,8 @@ export default function PlaceInput({ label, value, onChange, placeholder }: Prop
         .then((found) => {
           setOptions(found)
           setActive(-1)
-          setOpen(true)
+          // By the time the answer comes the user may have moved on to the next field.
+          setOpen(focused.current)
           setFailed(false)
         })
         .catch((error: unknown) => {
@@ -91,8 +93,14 @@ export default function PlaceInput({ label, value, onChange, placeholder }: Prop
         placeholder={placeholder}
         value={value.text}
         onChange={(event) => onChange({ text: event.target.value })}
-        onFocus={() => options.length > 0 && setOpen(true)}
-        onBlur={() => setOpen(false)}
+        onFocus={() => {
+          focused.current = true
+          if (options.length > 0) setOpen(true)
+        }}
+        onBlur={() => {
+          focused.current = false
+          setOpen(false)
+        }}
         onKeyDown={onKeyDown}
       />
       {showing && (
