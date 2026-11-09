@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react'
 import { ApiError, planTrip } from './api'
+import { fetchForecast } from './forecast'
 import CheckpointTable from './components/CheckpointTable'
 import HourSlider from './components/HourSlider'
 import Legend from './components/Legend'
@@ -20,13 +21,14 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null)
   const [hour, setHour] = useState(0)
   const [retryIn, setRetryIn] = useState<number | null>(null) // seconds until a busy weather service is asked again
+  const [fetching, setFetching] = useState(false) // the forecast is being fetched through this browser
   const [focus, setFocus] = useState<{ route: string; checkpoint: Checkpoint } | null>(null) // picked in the table, for the map to go to
   const pending = useRef<AbortController | null>(null)
   const lastRequest = useRef<{ request: PlanRequest; attempt: number } | null>(null)
   const overlay = useRef<HTMLDivElement>(null)
   const [opening] = useState(() => readLink(window.location.search)) // a plan sent on as a link
 
-  const submit = useCallback(async (request: PlanRequest, attempt = 1) => {
+  const submit = useCallback(async function submit(request: PlanRequest, attempt = 1) {
     pending.current?.abort()
     const controller = new AbortController()
     pending.current = controller
@@ -34,6 +36,7 @@ export default function App() {
     setBusy(true)
     setError(null)
     setRetryIn(null)
+    setFetching(false)
     try {
       const result = await planTrip(request, controller.signal)
       setPlan(result)
@@ -43,6 +46,23 @@ export default function App() {
       window.history.replaceState(null, '', writeLink(request))
     } catch (failure: unknown) {
       if (failure instanceof DOMException && failure.name === 'AbortError') return
+      // The server's address has no weather allowance left for the hour or the
+      // day, and it has said which forecast it needs: this browser fetches it
+      // with its own allowance and sends the readings back to be judged.
+      if (failure instanceof ApiError && failure.forecast && !request.forecast) {
+        setFetching(true)
+        try {
+          const forecast = await fetchForecast(failure.forecast, controller.signal)
+          if (pending.current !== controller) return
+          return await submit({ ...request, forecast }, attempt)
+        } catch (fetching: unknown) {
+          if (fetching instanceof DOMException && fetching.name === 'AbortError') return
+          setError(`${sentence(failure.message)} Fetching it through this browser did not work either: ${fetching instanceof Error ? fetching.message : 'something went wrong'}`)
+          return
+        } finally {
+          setFetching(false)
+        }
+      }
       // The weather service's allowance for the minute is spent: wait it out
       // and ask again by itself, twice at most, then say what the server said.
       const busyForAMoment =
@@ -97,6 +117,11 @@ export default function App() {
           <p className="problem" role="alert">
             {sentence(error)}
             {stale && ' The plan below is the previous one.'}
+          </p>
+        )}
+        {fetching && (
+          <p className="waiting" role="status">
+            The weather service's allowance for the server is spent, so the forecast is being fetched through this browser instead.
           </p>
         )}
         {retryIn !== null && (

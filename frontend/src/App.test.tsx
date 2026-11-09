@@ -19,10 +19,12 @@ vi.mock('./api', () => ({
   ApiError: class ApiError extends Error {
     status: number
     retryAfter: number | null
-    constructor(status: number, detail: string, retryAfter: number | null = null) {
+    forecast: unknown
+    constructor(status: number, detail: string, retryAfter: number | null = null, forecast: unknown = null) {
       super(detail)
       this.status = status
       this.retryAfter = retryAfter
+      this.forecast = forecast
     }
   },
 }))
@@ -96,6 +98,51 @@ describe('App', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Route B' }))
     expect(screen.getByTestId('map').textContent).toBe('B@0')
     expect(document.querySelector('tr.picked')).toBeNull()
+  })
+
+  it('fetches the forecast through the browser when the server has no allowance left, and says so', async () => {
+    const offer = {
+      url: 'https://weather.example/v1/forecast',
+      params: { hourly: 'wind_speed_10m,rain,showers,snowfall', start_hour: '2026-11-10T00:00', end_hour: '2026-11-13T00:00' },
+      points: [[35.2, -101.8], [35.3, -101.0]] as [number, number][],
+    }
+    const hourly = { time: [1, 2], wind_speed_10m: [5, 6], rain: [0, 0], showers: [0, 0], snowfall: [0, 0] }
+    const fetched = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => [{ hourly }, { hourly }] })
+    vi.stubGlobal('fetch', fetched)
+    try {
+      vi.mocked(planTrip)
+        .mockImplementationOnce(() => Promise.reject(new ApiError(503, "the weather service's free allowance for the day is spent", 86400, offer)))
+        .mockResolvedValueOnce(plan())
+      render(<App />)
+      ask()
+      await waitFor(() => expect(screen.getByText('Recommended')).toBeTruthy())
+      expect(fetched).toHaveBeenCalledTimes(1)
+      const url = new URL(fetched.mock.calls[0][0])
+      expect(url.origin + url.pathname).toBe('https://weather.example/v1/forecast')
+      expect(url.searchParams.get('latitude')).toBe('35.2000,35.3000')
+      expect(url.searchParams.get('end_hour')).toBe('2026-11-13T00:00')
+      expect(planTrip).toHaveBeenCalledTimes(2)
+      expect(vi.mocked(planTrip).mock.calls[1][0].forecast).toEqual({ points: offer.points, hourly: [hourly, hourly] })
+      expect(screen.queryByRole('status')).toBeNull()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('says when the browser could not fetch the forecast either', async () => {
+    const offer = { url: 'https://weather.example/v1/forecast', params: {}, points: [[35.2, -101.8]] as [number, number][] }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ error: true, reason: 'Daily API request limit exceeded' }) }))
+    try {
+      vi.mocked(planTrip).mockImplementation(() => Promise.reject(new ApiError(503, "the weather service's free allowance for the day is spent", 86400, offer)))
+      render(<App />)
+      ask()
+      await waitFor(() => expect(screen.getByRole('alert').textContent).toBe(
+        "The weather service's free allowance for the day is spent. Fetching it through this browser did not work either: Daily API request limit exceeded.",
+      ))
+      expect(planTrip).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
   })
 
   it('shows what the server said when a trip cannot be planned', async () => {

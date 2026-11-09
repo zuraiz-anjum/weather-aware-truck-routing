@@ -16,12 +16,36 @@ export interface PlaceInput {
   lon?: number
 }
 
+// What the server asks the browser to fetch when its own address has no
+// weather allowance left: Open-Meteo's address, the query apart from the
+// coordinates, and the points, in the order the readings must come back.
+export interface ForecastOffer {
+  url: string
+  params: Record<string, string>
+  points: [number, number][]
+}
+
+// One point's hourly series as Open-Meteo sends it; the tail may be null.
+export interface OpenMeteoHourly {
+  time: number[]
+  wind_speed_10m: (number | null)[]
+  rain: (number | null)[]
+  showers: (number | null)[]
+  snowfall: (number | null)[]
+}
+
+export interface SuppliedForecast {
+  points: [number, number][]
+  hourly: OpenMeteoHourly[]
+}
+
 export interface PlanRequest {
   origin: PlaceInput
   destination: PlaceInput
   departure: string
   load_lb: number
   interval_miles?: number
+  forecast?: SuppliedForecast // readings fetched by this browser, when the server asked for them
 }
 
 export interface Checkpoint {

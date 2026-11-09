@@ -236,6 +236,17 @@ with `Retry-After` when Open-Meteo's free allowance for the minute, the
 hour or the day is spent, and 429 past 20 plans a minute from one address
 (rejected requests count too).
 
+When it is the hour's or the day's allowance that is spent, the 503 also
+carries `forecast`: Open-Meteo's public `url`, the query `params` apart
+from the coordinates, and the `points` the plan needs, in order. A client
+may fetch that forecast itself, through its own address and allowance, a
+hundred points to a request, and post the same request again with
+`forecast: {"points": [...], "hourly": [...]}`, one `hourly` object per
+point in Open-Meteo's own shape. The server checks the points against its
+own, judges the readings exactly as it would its own fetch, and caches
+nothing of them; readings it cannot use are a 400. The page does this by
+itself and says so while it does.
+
 ## Things worth knowing
 
 - Driving times are OSRM's, for a car, with no stops. A real run has hours
@@ -259,8 +270,10 @@ hour or the day is spent, and 429 past 20 plans a minute from one address
   counts it down and asks again by itself, twice at most. The allowance is
   counted by address, and a shared host's outbound address is shared by
   its other tenants, so the hosted copy can meet a spent allowance that
-  its own traffic did not spend; a copy run from the image on a machine
-  of one's own has an allowance to itself.
+  its own traffic did not spend. When it does, the page fetches the
+  forecast through the visitor's own browser and address and the server
+  judges it, as the API section describes; a copy run from the image on
+  a machine of one's own has an allowance to itself.
 - The model runs sixteen days out from its own start, so between midnight
   UTC and the arrival of the day's first run, around 04:30, the last few
   hours of the sixteenth day come back empty. They are cut off the end of
@@ -357,7 +370,7 @@ frontend/src/
   App.tsx            state and layout
   components/        TripForm, PlaceInput, RouteCards, CheckpointTable,
                      HourSlider, Legend, RouteMap (MapLibre)
-  api.ts, types.ts, risk.ts, time.ts, progress.ts, link.ts, words.ts
+  api.ts, types.ts, risk.ts, time.ts, progress.ts, link.ts, forecast.ts, words.ts
 frontend/e2e/        the built app in a browser
 Dockerfile, render.yaml, .github/workflows/
 ```
