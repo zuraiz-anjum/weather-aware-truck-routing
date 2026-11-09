@@ -26,7 +26,7 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate          # macOS and Linux: source .venv/bin/activate
 pip install -r requirements.txt
-python manage.py test           # 157 tests, no network needed
+python manage.py test           # 161 tests, no network needed
 python manage.py runserver
 ```
 
@@ -35,7 +35,7 @@ Frontend, in another:
 ```
 cd frontend
 npm ci
-npm test                        # 29 tests
+npm test                        # 30 tests
 npm run dev
 ```
 
@@ -280,17 +280,17 @@ self-hosted copies of the services.
 
 ## Tests and checks
 
-`python manage.py test` runs the backend's 157 tests: the risk table at
+`python manage.py test` runs the backend's 161 tests: the risk table at
 every boundary, checkpoint placement, the heatmap lattice, the polyline
 decoder against the format's reference, the OSRM stitching, the side-route
 search with its spur and minor-road rules and second routing,
 Open-Meteo windows, chunking, caching and the hours past the model's
-reach, the planner's ranking, and the API end to end with the services
-stubbed. Three more run against
+reach, the planner's ranking, the settings under each environment, and
+the API end to end with the services stubbed. Three more run against
 the real services when `LIVE_SERVICES=1` is set: the forecast window at
 both ends of the allowed range, and a short trip through the whole
 planner. They exist because the stubs can only check what the code
-expects, not what the services accept. `npm test` runs the frontend's 29:
+expects, not what the services accept. `npm test` runs the frontend's 30:
 time and distance helpers, the form's validation and payload, the place
 suggestions, the route cards, and the app's planning flow with the map
 stubbed out, since jsdom has no WebGL. `npm run e2e`, after `npm run
