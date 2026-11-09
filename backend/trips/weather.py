@@ -86,13 +86,20 @@ def horizon():
 
 
 def forecast(points, start, end):
-    """One Hourly per point, covering the hours from start to end (aware datetimes) within the horizon."""
+    """One Hourly per point, with every hour a truck between start and end (aware datetimes) could need."""
+    first, last = start.timestamp(), end.timestamp()
     start = start.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     end = min(max(start + MIN_WINDOW, midnight_after(end.astimezone(timezone.utc) + timedelta(hours=1))), horizon())
     chunks = [points[i : i + POINTS_PER_REQUEST] for i in range(0, len(points), POINTS_PER_REQUEST)]
     with ThreadPoolExecutor(max_workers=PARALLEL_REQUESTS) as pool:
         answers = list(pool.map(lambda chunk: _fetch(chunk, start, end), chunks))
-    return [hourly for answer in answers for hourly in answer]
+    hourlies = [hourly for answer in answers for hourly in answer]
+    # The hours that came back may stop short of the window (see _hourly).
+    # Rain and snow at a moment are read from the stamp after it, so the
+    # series has to run past the last moment, not merely up to it.
+    if any(hourly.times[0] > first or hourly.times[-1] <= last for hourly in hourlies):
+        raise WeatherError("the weather service has no forecast for part of this trip")
+    return hourlies
 
 
 def midnight_after(when):
@@ -148,16 +155,25 @@ def _hourly(data):
     times = [int(t) for t in data["time"]]
     if not times:
         raise ValueError("no hours")
-    columns = {}
-    for name in VARIABLES:
-        column = data[name]
-        if len(column) != len(times):
-            raise ValueError("ragged columns")
-        # A null is an hour the model has nothing for. Reading it as calm
-        # would be the wrong way round for a safety rating, so the plan is
-        # refused instead; inside the sixteen-day horizon it does not happen.
-        if any(value is None for value in column):
-            raise WeatherError("the weather service has no forecast for part of this trip")
-        columns[name] = [float(value) for value in column]
-    rain = [r + s for r, s in zip(columns["rain"], columns["showers"])]
-    return Hourly(times, columns["wind_speed_10m"], rain, columns["snowfall"])
+    columns = [data[name] for name in VARIABLES]
+    if any(len(column) != len(times) for column in columns):
+        raise ValueError("ragged columns")
+    rows = list(zip(times, *columns))
+    # The model runs sixteen days out from its own start, so between
+    # midnight UTC and the arrival of the day's first run, around half past
+    # four, the last few hours of the sixteenth day come back null. Those
+    # are cut off the end, and forecast() checks whether the trip needed
+    # them. A null anywhere else is an hour the model has nothing for;
+    # reading it as calm would be the wrong way round for a safety rating,
+    # so the plan is refused instead.
+    while rows and None in rows[-1]:
+        rows.pop()
+    if not rows or any(None in row for row in rows):
+        raise WeatherError("the weather service has no forecast for part of this trip")
+    times, wind, rain, showers, snow = zip(*rows)
+    return Hourly(
+        list(times),
+        [float(w) for w in wind],
+        [float(r) + float(s) for r, s in zip(rain, showers)],
+        [float(s) for s in snow],
+    )

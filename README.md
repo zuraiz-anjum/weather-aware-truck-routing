@@ -192,8 +192,12 @@ too).
   kept for a day. Two or three fresh plans in one minute are fine, and a
   few dozen a day; past an allowance the API answers 503 with a
   `Retry-After` and says whether to wait a minute, an hour or a day.
-- An hour the model has no value for refuses the plan rather than reading
-  as calm. Inside the sixteen-day horizon it does not happen.
+- The model runs sixteen days out from its own start, so between midnight
+  UTC and the arrival of the day's first run, around 04:30, the last few
+  hours of the sixteenth day come back empty. They are cut off the end of
+  the series and matter only if the trip ran into them, which the latest
+  departure the form allows does not. An hour the model has no value for
+  inside the trip refuses the plan rather than reading as calm.
 - Routes are cached without regard to the load, since OSRM routes a car:
   the load only enters the risk rules.
 - Wind is sustained wind at 10 m. Gusts are higher; the brief's thresholds

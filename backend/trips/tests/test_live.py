@@ -31,8 +31,10 @@ class LiveServiceTests(CacheTestCase):
     def test_open_meteo_takes_the_latest_departure_the_form_allows(self):
         latest = datetime.now(timezone.utc) + LATEST_AHEAD - timedelta(minutes=5)
         (hourly,) = weather.forecast([(35.2, -101.8)], latest, latest + timedelta(hours=48))
-        self.assertGreaterEqual(hourly.times[-1], int((latest + timedelta(hours=48)).timestamp()) - 3600)
-        self.assertEqual(hourly.times[-1], int(weather.horizon().timestamp()))
+        # Early in the UTC day the model's reach stops a few hours short of
+        # the horizon and those hours are cut off; the trip's own must be there.
+        self.assertGreater(hourly.times[-1], int((latest + timedelta(hours=48)).timestamp()))
+        self.assertLessEqual(hourly.times[-1], int(weather.horizon().timestamp()))
 
     def test_a_short_trip_goes_through(self):
         origin = geocoding.locate("Amarillo, Texas")

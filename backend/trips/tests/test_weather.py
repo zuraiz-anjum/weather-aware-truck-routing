@@ -16,8 +16,8 @@ def at(hour, minute=0):
     return datetime.fromtimestamp(T0 + hour * 3600 + minute * 60, timezone.utc)
 
 
-def body_for(count, hours=49):
-    times = [T0 + h * 3600 for h in range(hours)]
+def body_for(count, hours=50, first=T0):
+    times = [first + h * 3600 for h in range(hours)]
     one = {
         "hourly": {
             "time": times,
@@ -73,11 +73,24 @@ class ForecastTests(CacheTestCase):
         self.addCleanup(mock.patch.stopall)
         return get
 
+    def answer_the_window_asked_for(self):
+        """Hours covering exactly the window each request names, for however many points it names."""
+
+        def respond(url, params, headers, timeout):
+            first = datetime.strptime(params["start_hour"], "%Y-%m-%dT%H:%M").replace(tzinfo=timezone.utc)
+            last = datetime.strptime(params["end_hour"], "%Y-%m-%dT%H:%M").replace(tzinfo=timezone.utc)
+            hours = int((last - first).total_seconds() // 3600) + 1
+            return FakeResponse(body_for(params["latitude"].count(",") + 1, hours, int(first.timestamp())))
+
+        get = mock.patch.object(trips.weather._session, "get", side_effect=respond).start()
+        self.addCleanup(mock.patch.stopall)
+        return get
+
     def soon(self, hours=0):
         return datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=hours)
 
     def test_window_and_units_in_the_request(self):
-        get = self.answer(body_for(2))
+        get = self.answer_the_window_asked_for()
         # Tomorrow at six, so that the slider's end lands inside the three-day
         # minimum whatever the time of day the test runs at.
         start = self.soon(24).replace(hour=6, minute=0, second=0)
@@ -95,7 +108,7 @@ class ForecastTests(CacheTestCase):
         self.assertNotIn("past_days", params)
 
     def test_a_long_trip_pushes_the_window_out_to_a_midnight(self):
-        get = self.answer(body_for(1))
+        get = self.answer_the_window_asked_for()
         start = self.soon(2)
         end = start + timedelta(hours=100)
         forecast([(35.0, -100.0)], start, end)
@@ -103,13 +116,13 @@ class ForecastTests(CacheTestCase):
         self.assertEqual(get.call_args[1]["params"]["end_hour"], expected.strftime("%Y-%m-%dT%H:%M"))
 
     def test_the_window_never_runs_past_the_horizon(self):
-        get = self.answer(body_for(1))
+        get = self.answer_the_window_asked_for()
         start = horizon() - timedelta(hours=60)
         forecast([(35.0, -100.0)], start, start + timedelta(hours=48))
         self.assertEqual(get.call_args[1]["params"]["end_hour"], horizon().strftime("%Y-%m-%dT%H:%M"))
 
     def test_a_departure_late_yesterday_just_starts_the_window_earlier(self):
-        get = self.answer(body_for(1))
+        get = self.answer_the_window_asked_for()
         yesterday = datetime.now(timezone.utc) - timedelta(hours=25)
         forecast([(35.0, -100.0)], yesterday, yesterday + timedelta(hours=2))
         params = get.call_args[1]["params"]
@@ -117,7 +130,7 @@ class ForecastTests(CacheTestCase):
         self.assertNotIn("past_days", params)
 
     def test_departures_on_the_same_day_share_one_fetch_however_long_the_trip(self):
-        get = self.answer(body_for(1))
+        get = self.answer_the_window_asked_for()
         morning = self.soon(2).replace(hour=6)
         forecast([(35.0, -100.0)], morning, morning + timedelta(hours=60))
         forecast([(35.0, -100.0)], morning + timedelta(hours=1), morning + timedelta(hours=61))
@@ -142,7 +155,7 @@ class ForecastTests(CacheTestCase):
     def test_a_single_point_comes_back_bare_and_rain_includes_showers(self):
         self.answer(body_for(1))
         (hourly,) = forecast([(35.0, -100.0)], at(0), at(48))
-        self.assertEqual(len(hourly.wind), 49)
+        self.assertEqual(len(hourly.wind), 50)
         self.assertAlmostEqual(hourly.rain[10], 0.15)
         self.assertEqual(hourly.snow[10], 0.0)
 
@@ -158,6 +171,27 @@ class ForecastTests(CacheTestCase):
         self.answer(body)
         with self.assertRaises(WeatherError) as caught:
             forecast([(35.0, -100.0)], at(0), at(48))
+        self.assertIn("no forecast for part of this trip", str(caught.exception))
+
+    def past_the_reach(self):
+        """The last five hours null in every column, as the sixteenth day comes back before the day's first model run."""
+        body = body_for(1)
+        for name in ("wind_speed_10m", "rain", "showers", "snowfall"):
+            body["hourly"][name][-5:] = [None] * 5
+        return body
+
+    def test_hours_past_the_models_reach_are_cut_off_when_the_trip_ends_before_them(self):
+        self.answer(self.past_the_reach())
+        (hourly,) = forecast([(35.0, -100.0)], at(0), at(43, 59))
+        self.assertEqual(len(hourly.times), 45)
+        self.assertEqual(hourly.times[-1], T0 + 44 * 3600)
+        self.assertEqual(len(hourly.wind), len(hourly.rain))
+
+    def test_a_trip_that_runs_into_the_hours_past_the_reach_is_refused(self):
+        self.answer(self.past_the_reach())
+        # Rain at 44:00 is the hour that ends at 45:00, and there is none.
+        with self.assertRaises(WeatherError) as caught:
+            forecast([(35.0, -100.0)], at(0), at(44))
         self.assertIn("no forecast for part of this trip", str(caught.exception))
 
     def test_an_allowance_running_out_is_its_own_error_and_says_how_long_to_wait(self):

@@ -61,8 +61,10 @@ def plan(origin, destination, departure, load_lb, interval=None):
     band = corridor.build([r.line for r in routes])
 
     end = departure + max(timedelta(seconds=max(r.duration_seconds for r in routes)), timedelta(hours=SLIDER_HOURS))
+    # Rain at the last moment is read from the hour after it, so the trip
+    # has to end before the horizon's last stamp, not on it.
     horizon = weather.horizon()
-    if end > horizon:
+    if end >= horizon:
         raise PlanningError("the forecast runs to %s UTC and this trip would still need it after that; leave earlier"
                             % horizon.strftime("%d %b %H:%M"))
 
