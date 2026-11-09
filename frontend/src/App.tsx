@@ -6,7 +6,7 @@ import Legend from './components/Legend'
 import RouteCards from './components/RouteCards'
 import TripForm from './components/TripForm'
 import { formatTime } from './time'
-import type { Plan, PlanRequest } from './types'
+import type { Checkpoint, Plan, PlanRequest } from './types'
 
 // MapLibre is most of the bundle; the form is usable while it is still arriving.
 const RouteMap = lazy(() => import('./components/RouteMap'))
@@ -18,6 +18,7 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null)
   const [hour, setHour] = useState(0)
   const [retryIn, setRetryIn] = useState<number | null>(null) // seconds until a busy weather service is asked again
+  const [focus, setFocus] = useState<{ route: string; checkpoint: Checkpoint } | null>(null) // picked in the table, for the map to go to
   const pending = useRef<AbortController | null>(null)
   const lastRequest = useRef<{ request: PlanRequest; attempt: number } | null>(null)
   const overlay = useRef<HTMLDivElement>(null)
@@ -35,6 +36,7 @@ export default function App() {
       setPlan(result)
       setSelected(result.routes[0]?.id ?? null)
       setHour(0)
+      setFocus(null)
     } catch (failure: unknown) {
       if (failure instanceof DOMException && failure.name === 'AbortError') return
       // The weather service's allowance for the minute is spent: wait it out
@@ -49,6 +51,11 @@ export default function App() {
     } finally {
       if (pending.current === controller) setBusy(false)
     }
+  }, [])
+
+  const choose = useCallback((id: string) => {
+    setSelected(id)
+    setFocus(null)
   }, [])
 
   useEffect(() => {
@@ -101,8 +108,14 @@ export default function App() {
                 {note}
               </p>
             ))}
-            <RouteCards plan={plan} selected={route?.id ?? null} onSelect={setSelected} />
-            {route && <CheckpointTable route={route} />}
+            <RouteCards plan={plan} selected={route?.id ?? null} onSelect={choose} />
+            {route && (
+              <CheckpointTable
+                route={route}
+                picked={focus?.route === route.id ? focus.checkpoint.mile : null}
+                onPick={(checkpoint) => setFocus({ route: route.id, checkpoint })}
+              />
+            )}
             <p className="small muted">
               Times are local to this browser. Driving times come from the routing engine and assume no stops.
               Wind is sustained wind at 10 m; rain and snow are hourly totals for the hour ahead. Heatmap cells
@@ -113,7 +126,7 @@ export default function App() {
       </aside>
       <main className={stale ? 'map-area stale' : 'map-area'}>
         <Suspense fallback={<div className="map map-loading muted">Loading the map&hellip;</div>}>
-          <RouteMap plan={plan} selected={route?.id ?? null} hour={hour} onSelect={setSelected} overlay={overlay} />
+          <RouteMap plan={plan} selected={route?.id ?? null} hour={hour} onSelect={choose} focus={focus} overlay={overlay} />
         </Suspense>
         {plan && (
           <div className="map-controls" ref={overlay}>

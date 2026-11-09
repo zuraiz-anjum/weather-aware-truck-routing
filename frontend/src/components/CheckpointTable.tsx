@@ -1,12 +1,18 @@
 import { chipText, levelColor, levelInk, levelName } from '../risk'
 import { formatShortTime } from '../time'
-import type { Level, Route } from '../types'
+import type { Checkpoint, Level, Route } from '../types'
+
+interface Props {
+  route: Route
+  picked?: number | null // the mile of the checkpoint the map has been taken to
+  onPick?: (checkpoint: Checkpoint) => void
+}
 
 function tone(level: Level) {
   return level > 0 ? { color: levelInk(level), fontWeight: 600 } : undefined
 }
 
-export default function CheckpointTable({ route }: { route: Route }) {
+export default function CheckpointTable({ route, picked = null, onPick }: Props) {
   return (
     <section className="checkpoints" aria-label={`Checkpoints on route ${route.id}`}>
       <h3>
@@ -31,8 +37,13 @@ export default function CheckpointTable({ route }: { route: Route }) {
         </thead>
         <tbody>
           {route.checkpoints.map((c) => (
-            <tr key={c.mile}>
-              <td className="num">{Math.round(c.mile)}</td>
+            // A click anywhere on the row takes the map there; the mile is a button so the keyboard can do the same.
+            <tr key={c.mile} className={c.mile === picked ? 'picked' : undefined} onClick={() => onPick?.(c)}>
+              <td className="num">
+                <button type="button" className="link" title="Show on the map">
+                  {Math.round(c.mile)}
+                </button>
+              </td>
               <td>{formatShortTime(c.eta)}</td>
               <td className="num" style={tone(c.wind_level)}>
                 {c.wind_mph.toFixed(0)}

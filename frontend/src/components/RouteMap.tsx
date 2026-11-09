@@ -24,6 +24,7 @@ interface Props {
   selected: string | null
   hour: number
   onSelect: (id: string) => void
+  focus?: { route: string; checkpoint: Checkpoint } | null // a checkpoint picked in the table
   overlay?: RefObject<HTMLElement | null> // whatever the app lays over the bottom of the map
 }
 
@@ -175,13 +176,14 @@ function endElement(label: string): HTMLElement {
   return element
 }
 
-export default function RouteMap({ plan, selected, hour, onSelect, overlay }: Props) {
+export default function RouteMap({ plan, selected, hour, onSelect, focus, overlay }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const map = useRef<MapLibre | null>(null)
   const trucks = useRef<globalThis.Map<string, Marker>>(new globalThis.Map())
   const ends = useRef<Marker[]>([])
   const tracks = useRef<globalThis.Map<string, Track>>(new globalThis.Map())
   const select = useRef(onSelect)
+  const popup = useRef<Popup | null>(null)
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
@@ -197,7 +199,8 @@ export default function RouteMap({ plan, selected, hour, onSelect, overlay }: Pr
       attributionControl: { compact: true },
     })
     instance.addControl(new NavigationControl({ showCompass: false }), 'top-right')
-    const popup = new Popup({ closeButton: false, closeOnClick: false, maxWidth: '260px' })
+    const bubble = new Popup({ closeButton: false, closeOnClick: false, maxWidth: '260px' })
+    popup.current = bubble
 
     instance.on('load', () => {
       install(instance)
@@ -213,19 +216,19 @@ export default function RouteMap({ plan, selected, hour, onSelect, overlay }: Pr
       instance.on('mousemove', 'routes', (event: MapMouseEvent & { features?: MapGeoJSONFeature[] }) => {
         if (onDot) return
         const summary = event.features?.[0]?.properties?.summary
-        if (typeof summary === 'string') popup.setLngLat(event.lngLat).setHTML(summary).addTo(instance)
+        if (typeof summary === 'string') bubble.setLngLat(event.lngLat).setHTML(summary).addTo(instance)
       })
       instance.on('mouseleave', 'routes', () => {
         if (onDot) return
         instance.getCanvas().style.cursor = ''
-        popup.remove()
+        bubble.remove()
       })
       const showCheckpoint = (event: MapMouseEvent & { features?: MapGeoJSONFeature[] }) => {
         const feature = event.features?.[0]
         if (!feature || feature.geometry.type !== 'Point') return
         const [lon, lat] = feature.geometry.coordinates
         const { route, ...checkpoint } = feature.properties as Checkpoint & { route: string }
-        popup.setLngLat([lon, lat]).setHTML(describe(route, checkpoint)).addTo(instance)
+        bubble.setLngLat([lon, lat]).setHTML(describe(route, checkpoint)).addTo(instance)
       }
       const dots = ['checkpoints-other', 'checkpoints'] // the chosen route's layer last, so its dot wins where they coincide
       for (const layer of dots) {
@@ -237,13 +240,13 @@ export default function RouteMap({ plan, selected, hour, onSelect, overlay }: Pr
         instance.on('mouseleave', layer, () => {
           onDot = false
           instance.getCanvas().style.cursor = ''
-          popup.remove()
+          bubble.remove()
         })
         // A finger cannot hover: a tap on a dot opens the same popup, and a tap anywhere else closes it.
         instance.on('click', layer, showCheckpoint)
       }
       instance.on('click', (event: MapMouseEvent) => {
-        if (instance.queryRenderedFeatures(event.point, { layers: dots }).length === 0) popup.remove()
+        if (instance.queryRenderedFeatures(event.point, { layers: dots }).length === 0) bubble.remove()
       })
       setReady(true)
     })
@@ -259,6 +262,7 @@ export default function RouteMap({ plan, selected, hour, onSelect, overlay }: Pr
   useEffect(() => {
     const instance = map.current
     if (!instance || !ready) return
+    popup.current?.remove()
     for (const marker of trucks.current.values()) marker.remove()
     for (const marker of ends.current) marker.remove()
     trucks.current.clear()
@@ -314,6 +318,19 @@ export default function RouteMap({ plan, selected, hour, onSelect, overlay }: Pr
       marker.getElement().classList.toggle('arrived', seconds >= route.duration_seconds)
     }
   }, [plan, hour, ready])
+
+  // A checkpoint picked in the table: the map goes to it and opens its popup.
+  useEffect(() => {
+    const instance = map.current
+    if (!instance || !ready) return
+    if (!focus) {
+      popup.current?.remove()
+      return
+    }
+    const { lon, lat } = focus.checkpoint
+    instance.easeTo({ center: [lon, lat], zoom: Math.max(instance.getZoom(), 8), duration: 600 })
+    popup.current?.setLngLat([lon, lat]).setHTML(describe(focus.route, focus.checkpoint)).addTo(instance)
+  }, [focus, ready])
 
   return <div ref={container} className="map" role="region" aria-label="Map of the routes" />
 }

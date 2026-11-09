@@ -44,5 +44,7 @@ test('a plan is drawn and the slider moves through it', async ({ page }) => {
   await expect(page.getByText('(departure + 48 h)')).toBeVisible()
   await page.getByRole('button', { name: 'Route B' }).click()
   await expect(page.getByRole('region', { name: 'Checkpoints on route B' })).toBeVisible()
+  await page.getByRole('button', { name: '50' }).click()
+  await expect(page.locator('.maplibregl-popup')).toContainText('Route B, mile 50')
   expect(errors).toEqual([])
 })

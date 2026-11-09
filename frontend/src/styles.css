@@ -364,6 +364,14 @@ button.link {
   text-align: right;
 }
 
+.checkpoints tbody tr {
+  cursor: pointer;
+}
+
+.checkpoints tr.picked td {
+  background: #e9eef5;
+}
+
 .chip {
   display: inline-block;
   color: #fff;

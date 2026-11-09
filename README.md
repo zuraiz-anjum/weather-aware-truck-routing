@@ -102,7 +102,9 @@ departure. Each checkpoint stands for the stretch of road from it to the
 next, which is how a level becomes miles. The destination has no road
 after it, but the truck arrives into its weather, so when its reading is
 worse than the final stretch's own the stretch takes it: a route arriving
-into No Travel conditions is not clear to drive.
+into No Travel conditions is not clear to drive. Picking a row of the
+checkpoint table takes the map to that checkpoint and opens its reading,
+as pointing at a dot does.
 
 **Weather.** Open-Meteo gives hourly wind at 10 m in mph and rain and snow
 in inches for the hour, for many points in one request; the app asks for a

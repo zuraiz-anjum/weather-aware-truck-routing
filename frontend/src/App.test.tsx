@@ -6,9 +6,10 @@ import { plan } from './test/fixtures'
 
 // MapLibre needs WebGL, which jsdom has not got; the map is checked in a browser.
 vi.mock('./components/RouteMap', () => ({
-  default: ({ selected, hour }: { selected: string | null; hour: number }) => (
+  default: ({ selected, hour, focus }: { selected: string | null; hour: number; focus: { checkpoint: { mile: number } } | null }) => (
     <div data-testid="map">
       {selected}@{hour}
+      {focus && `>${focus.checkpoint.mile}`}
     </div>
   ),
 }))
@@ -61,6 +62,19 @@ describe('App', () => {
 
     fireEvent.change(screen.getByLabelText(/Forecast at/), { target: { value: '12' } })
     expect(screen.getByTestId('map').textContent).toBe('B@12')
+  })
+
+  it('takes the map to a checkpoint picked from the table, until another route is chosen', async () => {
+    vi.mocked(planTrip).mockResolvedValue(plan())
+    render(<App />)
+    ask()
+    await waitFor(() => expect(screen.getByText('Recommended')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '50' }))
+    expect(screen.getByTestId('map').textContent).toBe('A@0>50')
+    expect(screen.getByRole('button', { name: '50' }).closest('tr')?.className).toBe('picked')
+    fireEvent.click(screen.getByRole('button', { name: 'Route B' }))
+    expect(screen.getByTestId('map').textContent).toBe('B@0')
+    expect(document.querySelector('tr.picked')).toBeNull()
   })
 
   it('shows what the server said when a trip cannot be planned', async () => {
