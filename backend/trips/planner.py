@@ -154,6 +154,7 @@ def judge(route, stops, hourlies, departure, load_lb):
         eta = departure + timedelta(seconds=seconds)
         readings.append((stop, eta, seconds, risk.assess(*hourly.at(eta), load_lb)))
     miles_by_level = [0.0] * len(risk.NAMES)
+    stretches_by_level = [0] * len(risk.NAMES)
     weighted = 0.0
     out = []
     for k, (stop, eta, seconds, found) in enumerate(readings):
@@ -166,6 +167,8 @@ def judge(route, stops, hourlies, departure, load_lb):
             charged = max(charged, readings[-1][3].level)
         miles_by_level[charged] += stop.covers_miles
         weighted += charged * stop.covers_miles
+        if k < len(readings) - 1:
+            stretches_by_level[charged] += 1
         wind, rain, snow = found.readings
         out.append({
             "mile": round(stop.mile, 1),
@@ -184,13 +187,17 @@ def judge(route, stops, hourlies, departure, load_lb):
             "load_rule": found.load_rule,
         })
     average = weighted / route.distance_miles if route.distance_miles else 0.0
-    # The mean is compared to a tenth. A longer route that meets the same
+    # The first three criteria are counted in whole stretches rather than
+    # miles: the final stretch is as long as whatever is left of the route
+    # past its last marker, so two routes arriving into the same weather
+    # would otherwise differ by an accident of where the markers fall. The
+    # mean is compared to a tenth: a longer route that meets the same
     # trouble has a lower mean only for carrying more calm miles after it,
     # which is no reason to drive them; means that close fall through to time.
     key = (
-        round(miles_by_level[risk.NO_TRAVEL], 1),
-        round(miles_by_level[risk.SEVERE], 1),
-        round(miles_by_level[risk.HIGH], 1),
+        stretches_by_level[risk.NO_TRAVEL],
+        stretches_by_level[risk.SEVERE],
+        stretches_by_level[risk.HIGH],
         round(average, 1),
         route.duration_seconds,
     )

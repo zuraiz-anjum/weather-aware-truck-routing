@@ -92,6 +92,30 @@ class PlanTests(CacheTestCase):
         self.assertIn("No route is clear to drive", result["warning"])
         self.assertIn("Route A is the least bad and still has 200 miles rated No Travel", result["warning"])
 
+    def test_the_leftover_stretch_at_the_end_does_not_decide_between_routes(self):
+        # Both routes arrive into 40 mph wind. The straight one's last stretch
+        # is the full ten miles, the dog-leg's the seven left past its last
+        # marker; counted in miles the dog-leg would win for being longer.
+        straight = fake_route(east_west_line(35.0, -100.0, 200), 3 * 3600)
+        corner, end = (35.4, -98.2), (35.0, -96.47)
+        out = [(35.0 + (corner[0] - 35.0) * k / 60, -100.0 + (corner[1] + 100.0) * k / 60) for k in range(61)]
+        back = [(corner[0] + (end[0] - corner[0]) * k / 60, corner[1] + (end[1] - corner[1]) * k / 60) for k in range(1, 61)]
+        dog_leg = fake_route(out + back, 3.2 * 3600, detour=True)
+        self.find.return_value = Found([straight, dog_leg], 0)
+        windy, calm = fake_forecast(lambda lat: 40.0), fake_forecast()
+
+        def forecast(points, start, end):
+            return [(windy if lon > -96.55 else calm)([(lat, lon)], start, end)[0] for lat, lon in points]
+
+        self.forecast.side_effect = forecast
+        routes = plan(ORIGIN, DESTINATION, self.departure, 20_000)["routes"]
+        self.assertEqual([round(r["distance_miles"]) for r in routes], [200, 207])
+        high = [r["summary"]["miles_by_level"][HIGH] for r in routes]
+        self.assertEqual(high[0], 10.0)
+        self.assertTrue(0 < high[1] < 10, high)
+        self.assertTrue(routes[0]["summary"]["recommended"])
+        self.assertEqual(routes[0]["summary"]["reason"], "the quickest route, and no other scores better on weather")
+
     def test_arriving_into_no_travel_conditions_counts_against_the_final_stretch(self):
         # The destination covers no road of its own, but the truck arrives
         # into its weather: 60 mph wind over the last few miles blocks every route.

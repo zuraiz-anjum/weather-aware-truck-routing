@@ -135,10 +135,14 @@ mph with more than 30,000 lb is No Travel, and 35–44 mph with more than
 API says which one, and the table marks the row.
 
 **Recommendation.** Routes are ordered by fewest miles rated No Travel,
-then fewest Severe, fewest High, lowest average risk (a mile-weighted mean
-of the levels, 0 to 4, compared to a tenth: a longer route that meets the
-same trouble has a lower mean only for carrying more calm miles after it,
-so means that close fall through to time), then shortest driving time. The brief lists the last
+then fewest Severe, fewest High (each counted in whole checkpoint
+stretches, since the last stretch is as long as whatever is left of the
+route past its last marker and two routes arriving into the same weather
+would otherwise differ by an accident of where the markers fall), lowest
+average risk (a mile-weighted mean of the levels, 0 to 4, compared to a
+tenth: a longer route that meets the same trouble has a lower mean only for
+carrying more calm miles after it, so means that close fall through to
+time), then shortest driving time. The brief lists the last
 four; No Travel miles go first because a route with any is not one the
 truck can take, and ranking it above a route with a few Severe miles would
 be absurd. The recommended route's card says why it beat the quickest one
