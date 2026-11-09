@@ -90,6 +90,7 @@ export default function PlaceInput({ label, value, onChange, placeholder }: Prop
         aria-activedescendant={showing && active >= 0 ? `${id}-option-${active}` : undefined}
         autoComplete="off"
         spellCheck={false}
+        maxLength={200} // as much as the server reads of a name
         placeholder={placeholder}
         value={value.text}
         onChange={(event) => onChange({ text: event.target.value })}

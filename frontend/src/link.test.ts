@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { readLink, writeLink } from './link'
+
+// How far off a link's departure may be is measured from today, so today is pinned.
+beforeEach(() => vi.setSystemTime('2026-11-09T12:00:00Z'))
+afterEach(() => vi.useRealTimers())
 
 describe('a plan in the address bar', () => {
   it('writes the inputs readably and reads them back', () => {
@@ -26,9 +30,21 @@ describe('a plan in the address bar', () => {
     expect(readLink('?from=A&to=B&leave=tomorrow&load=1')).toBeNull()
     expect(readLink('?from=A&to=B&leave=2026-11-12T14:00:00Z&load=250000')).toBeNull()
     expect(readLink('?from=A&to=B&leave=2026-11-12T14:00:00Z&load=1&every=15')).toBeNull()
+    // No load is no plan, rather than an empty truck; a load of nothing is still a load.
+    expect(readLink('?from=A&to=B&leave=2026-11-12T14:00:00Z')).toBeNull()
+    expect(readLink('?from=A&to=B&leave=2026-11-12T14:00:00Z&load=')).toBeNull()
+    expect(readLink('?from=A&to=B&leave=2026-11-12T14:00:00Z&load=0')?.request.load_lb).toBe(0)
     // Coordinates that make no sense are dropped, the name kept.
     const opening = readLink('?from=A&from_at=95,0&to=B&leave=2026-11-12T14:00:00Z&load=1')
     expect(opening?.request.origin).toEqual({ text: 'A' })
     expect(opening?.draft.interval).toBe('auto')
+  })
+
+  it('takes a departure from the year or so around today, not one years off either way', () => {
+    expect(readLink('?from=A&to=B&leave=2026-06-01T14:00:00Z&load=1')).not.toBeNull()
+    expect(readLink('?from=A&to=B&leave=2027-06-01T14:00:00Z&load=1')).not.toBeNull()
+    expect(readLink('?from=A&to=B&leave=2025-09-01T14:00:00Z&load=1')).toBeNull()
+    expect(readLink('?from=A&to=B&leave=2028-01-01T14:00:00Z&load=1')).toBeNull()
+    expect(readLink('?from=A&to=B&leave=2099-01-01T14:00:00Z&load=1')).toBeNull()
   })
 })

@@ -4,7 +4,14 @@ import TripForm from './TripForm'
 
 vi.mock('../api', () => ({ suggestPlaces: vi.fn().mockResolvedValue([]) }))
 
-afterEach(cleanup)
+// jsdom lays nothing out and has no scrollIntoView; the form calls it to bring its problem on screen.
+const scrollIntoView = vi.fn()
+Element.prototype.scrollIntoView = scrollIntoView
+
+afterEach(() => {
+  cleanup()
+  scrollIntoView.mockClear()
+})
 
 function fill(origin: string, destination: string) {
   fireEvent.change(screen.getByLabelText('Origin'), { target: { value: origin } })
@@ -12,12 +19,29 @@ function fill(origin: string, destination: string) {
 }
 
 describe('TripForm', () => {
-  it('asks for both places before planning', () => {
+  it('asks for both places before planning, and brings the line on screen', () => {
     const onSubmit = vi.fn()
     render(<TripForm onSubmit={onSubmit} busy={false} />)
     fireEvent.click(screen.getByText('Plan routes'))
     expect(screen.getByRole('alert').textContent).toMatch(/origin and a destination/)
     expect(onSubmit).not.toHaveBeenCalled()
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' })
+  })
+
+  it('says when it has refused, so that an older error elsewhere can come down', () => {
+    const onSubmit = vi.fn()
+    const onInvalid = vi.fn()
+    render(<TripForm onSubmit={onSubmit} onInvalid={onInvalid} busy={false} />)
+    fill('A', 'B')
+    fireEvent.change(screen.getByLabelText('Load weight (lb)'), { target: { value: '-1' } })
+    fireEvent.click(screen.getByText('Plan routes'))
+    expect(onInvalid).toHaveBeenCalledTimes(1)
+    expect(onSubmit).not.toHaveBeenCalled()
+    fireEvent.change(screen.getByLabelText('Load weight (lb)'), { target: { value: '1000' } })
+    fireEvent.click(screen.getByText('Plan routes'))
+    expect(onInvalid).toHaveBeenCalledTimes(1)
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('sends typed names, the departure as an instant, and the load as a whole number', () => {

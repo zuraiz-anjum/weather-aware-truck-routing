@@ -80,4 +80,9 @@ describe('PlaceInput', () => {
     await settle()
     expect(screen.getByText(/Suggestions are not available/)).toBeTruthy()
   })
+
+  it('takes no more of a name than the server reads', () => {
+    render(<PlaceInput label="Origin" value={{ text: '' }} onChange={vi.fn()} />)
+    expect((screen.getByRole('combobox') as HTMLInputElement).maxLength).toBe(200)
+  })
 })

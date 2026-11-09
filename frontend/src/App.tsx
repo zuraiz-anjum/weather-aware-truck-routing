@@ -26,7 +26,10 @@ export default function App() {
   const pending = useRef<AbortController | null>(null)
   const lastRequest = useRef<{ request: PlanRequest; attempt: number } | null>(null)
   const overlay = useRef<HTMLDivElement>(null)
+  const alarm = useRef<HTMLParagraphElement>(null)
   const [opening] = useState(() => readLink(window.location.search)) // a plan sent on as a link
+  // The link's departure has gone by, so nothing was planned from it; said until a plan is asked for.
+  const [passed, setPassed] = useState(() => opening !== null && Date.parse(opening.request.departure) <= Date.now())
 
   const submit = useCallback(async function submit(request: PlanRequest, attempt = 1) {
     pending.current?.abort()
@@ -37,6 +40,7 @@ export default function App() {
     setError(null)
     setRetryIn(null)
     setFetching(false)
+    setPassed(false)
     try {
       const result = await planTrip(request, controller.signal)
       setPlan(result)
@@ -99,6 +103,12 @@ export default function App() {
     return () => clearTimeout(timer)
   }, [retryIn, submit])
 
+  // On a phone the form fills the panel and this line lands under its fold, where
+  // a failed plan would show as nothing more than the busy notice going away.
+  useEffect(() => {
+    if (error) alarm.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [error])
+
   const route = plan?.routes.find((r) => r.id === selected) ?? plan?.routes[0] ?? null
   // A plan left on screen after a failed attempt, or while one is waiting to be retried, is the previous one.
   const stale = plan !== null && (error !== null || retryIn !== null)
@@ -112,9 +122,9 @@ export default function App() {
             Three routes, the weather each one meets at the hour the truck gets there, and which to take.
           </p>
         </header>
-        <TripForm onSubmit={submit} busy={busy} initial={opening?.draft} />
+        <TripForm onSubmit={submit} onInvalid={() => setError(null)} busy={busy} initial={opening?.draft} />
         {error && (
-          <p className="problem" role="alert">
+          <p className="problem" role="alert" ref={alarm}>
             {sentence(error)}
             {stale && ' The plan below is the previous one.'}
           </p>
@@ -131,6 +141,7 @@ export default function App() {
             again in {retryIn} s.{stale && ' The plan below is the previous one.'}
           </p>
         )}
+        {passed && <p className="note">The departure in this link has passed; choose a new time and plan again.</p>}
         {plan && (
           <div className={stale ? 'results stale' : 'results'}>
             <h2>

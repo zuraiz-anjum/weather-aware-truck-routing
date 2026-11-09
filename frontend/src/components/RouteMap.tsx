@@ -160,6 +160,15 @@ function bounds(plan: Plan): LngLatBounds {
   return box
 }
 
+// The routes are fitted clear of whatever the app lays over the bottom of the map, at whatever
+// height that takes on this screen, and of the zoom control in the top right corner, which an
+// end label would otherwise sit under. A new plan and the end of a close-up both come here, so
+// the two views cannot drift apart.
+function fitRoutes(instance: MapLibre, plan: Plan, overlay: HTMLElement | null | undefined) {
+  const covered = overlay ? instance.getContainer().clientHeight - overlay.offsetTop : 0
+  instance.fitBounds(bounds(plan), { padding: { top: 48, right: 96, bottom: covered + 40, left: 48 }, duration: 700, maxZoom: 11 })
+}
+
 function truckElement(id: string): HTMLElement {
   const element = document.createElement('div')
   element.className = 'truck'
@@ -184,6 +193,7 @@ export default function RouteMap({ plan, selected, hour, onSelect, focus, overla
   const tracks = useRef<globalThis.Map<string, Track>>(new globalThis.Map())
   const select = useRef(onSelect)
   const popup = useRef<Popup | null>(null)
+  const focused = useRef(false) // a picked checkpoint has the view, which letting go of it should give back
   const [ready, setReady] = useState(false)
 
   useEffect(() => {
@@ -268,6 +278,7 @@ export default function RouteMap({ plan, selected, hour, onSelect, focus, overla
     trucks.current.clear()
     ends.current = []
     tracks.current.clear()
+    focused.current = false // whatever was picked went with the old plan; the view is fitted afresh below
     if (!plan) {
       for (const source of ['cells', 'routes', 'checkpoints']) (instance.getSource(source) as GeoJSONSource).setData(EMPTY)
       return
@@ -285,10 +296,7 @@ export default function RouteMap({ plan, selected, hour, onSelect, focus, overla
       new Marker({ element: endElement(plan.origin.label), anchor: 'bottom', offset: [0, -4] }).setLngLat([plan.origin.lon, plan.origin.lat]).addTo(instance),
       new Marker({ element: endElement(plan.destination.label), anchor: 'bottom', offset: [0, -4] }).setLngLat([plan.destination.lon, plan.destination.lat]).addTo(instance),
     ]
-    // The routes are fitted clear of the slider and legend, whatever height they take on this screen,
-    // and of the zoom control in the top right corner, which an end label would otherwise sit under.
-    const covered = overlay?.current ? container.current!.clientHeight - overlay.current.offsetTop : 0
-    instance.fitBounds(bounds(plan), { padding: { top: 48, right: 96, bottom: covered + 40, left: 48 }, duration: 700, maxZoom: 11 })
+    fitRoutes(instance, plan, overlay?.current)
   }, [plan, ready, overlay])
 
   // The chosen route is drawn bold with its checkpoints; the others stay in the background.
@@ -320,18 +328,23 @@ export default function RouteMap({ plan, selected, hour, onSelect, focus, overla
     }
   }, [plan, hour, ready])
 
-  // A checkpoint picked in the table: the map goes to it and opens its popup.
+  // A checkpoint picked in the table: the map goes to it and opens its popup. When the pick
+  // is let go of, as choosing another route does, the view goes back to the whole of the
+  // routes, of which the close-up would show only a sliver.
   useEffect(() => {
     const instance = map.current
     if (!instance || !ready) return
     if (!focus) {
       popup.current?.remove()
+      if (focused.current && plan) fitRoutes(instance, plan, overlay?.current)
+      focused.current = false
       return
     }
+    focused.current = true
     const { lon, lat } = focus.checkpoint
     instance.easeTo({ center: [lon, lat], zoom: Math.max(instance.getZoom(), 8), duration: 600 })
     popup.current?.setLngLat([lon, lat]).setHTML(describe(focus.route, focus.checkpoint)).addTo(instance)
-  }, [focus, ready])
+  }, [focus, plan, ready, overlay])
 
   return <div ref={container} className="map" role="region" aria-label="Map of the routes" />
 }

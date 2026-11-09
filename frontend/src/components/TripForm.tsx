@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { fromInputValue, nextWholeHour, timeZoneName, toInputValue } from '../time'
 import type { Place, PlaceInput as PlaceRequest, PlanRequest } from '../types'
 import PlaceInput, { type PlaceValue } from './PlaceInput'
@@ -14,6 +14,7 @@ export interface Draft {
 
 interface Props {
   onSubmit: (request: PlanRequest) => void
+  onInvalid?: () => void // the form has refused the inputs and is saying why itself
   busy: boolean
   initial?: Draft
 }
@@ -35,7 +36,7 @@ function asRequest(value: PlaceValue): PlaceRequest {
     : { text: value.text.trim() }
 }
 
-export default function TripForm({ onSubmit, busy, initial }: Props) {
+export default function TripForm({ onSubmit, onInvalid, busy, initial }: Props) {
   const [origin, setOrigin] = useState<PlaceValue>(initial?.origin ?? { text: '' })
   const [destination, setDestination] = useState<PlaceValue>(initial?.destination ?? { text: '' })
   const [departure, setDeparture] = useState(() => initial?.departure ?? toInputValue(nextWholeHour()))
@@ -46,6 +47,12 @@ export default function TripForm({ onSubmit, busy, initial }: Props) {
   const [load, setLoad] = useState(initial?.load ?? '20000')
   const [interval, setInterval] = useState(initial?.interval ?? 'auto')
   const [problem, setProblem] = useState<string | null>(null)
+  const alarm = useRef<HTMLParagraphElement>(null)
+
+  // On a phone the line can land under the fold of the form, where a refused plan would look like nothing happened.
+  useEffect(() => {
+    if (problem) alarm.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [problem])
 
   function submit(event: FormEvent) {
     event.preventDefault()
@@ -64,11 +71,11 @@ export default function TripForm({ onSubmit, busy, initial }: Props) {
     const when = fromInputValue(departure)
     const pounds = Number(load)
     if (!from.text.trim() || !to.text.trim()) {
-      setProblem('Give both an origin and a destination.')
+      refuse('Give both an origin and a destination.')
     } else if (!when) {
-      setProblem('Give a departure date and time.')
+      refuse('Give a departure date and time.')
     } else if (load.trim() === '' || !Number.isFinite(pounds) || pounds < 0 || pounds > MAX_LOAD_LB) {
-      setProblem(`Load weight must be between 0 and ${MAX_LOAD_LB.toLocaleString()} lb.`)
+      refuse(`Load weight must be between 0 and ${MAX_LOAD_LB.toLocaleString()} lb.`)
     } else {
       setProblem(null)
       onSubmit({
@@ -79,6 +86,12 @@ export default function TripForm({ onSubmit, busy, initial }: Props) {
         ...(interval === 'auto' ? {} : { interval_miles: Number(interval) }),
       })
     }
+  }
+
+  // Said here, so that whoever is showing an older error of their own can take it down: two red boxes at once read as two faults.
+  function refuse(message: string) {
+    setProblem(message)
+    onInvalid?.()
   }
 
   function swap() {
@@ -142,7 +155,7 @@ export default function TripForm({ onSubmit, busy, initial }: Props) {
         </select>
       </div>
       {problem && (
-        <p className="problem" role="alert">
+        <p className="problem" role="alert" ref={alarm}>
           {problem}
         </p>
       )}

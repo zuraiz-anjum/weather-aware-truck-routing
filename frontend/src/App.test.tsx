@@ -29,6 +29,10 @@ vi.mock('./api', () => ({
   },
 }))
 
+// jsdom lays nothing out and has no scrollIntoView; the app calls it to bring an error on screen.
+const scrollIntoView = vi.fn()
+Element.prototype.scrollIntoView = scrollIntoView
+
 // Resetting the mock between tests (mockReset) makes vitest 5 report the
 // rejected promise as unhandled even though App catches it; clearing is enough.
 afterEach(() => {
@@ -36,6 +40,11 @@ afterEach(() => {
   vi.clearAllMocks()
   window.history.replaceState(null, '', '/')
 })
+
+// A link is taken only from the year or so around today, so the tests' links are dated from today.
+const DAY_MS = 86_400_000
+const tomorrow = new Date(Date.now() + DAY_MS).toISOString()
+const yesterday = new Date(Date.now() - DAY_MS).toISOString()
 
 function ask() {
   fireEvent.change(screen.getByLabelText('Origin'), { target: { value: 'Amarillo' } })
@@ -70,21 +79,30 @@ describe('App', () => {
 
   it('opens a shared link and plans it when the departure is still ahead', async () => {
     vi.mocked(planTrip).mockResolvedValue(plan())
-    window.history.replaceState(null, '', '?from=Amarillo&from_at=35.2,-101.8&to=Oklahoma+City&leave=2099-01-01T10:00:00.000Z&load=36000&every=50')
+    window.history.replaceState(null, '', `?from=Amarillo&from_at=35.2,-101.8&to=Oklahoma+City&leave=${tomorrow}&load=36000&every=50`)
     render(<App />)
     await waitFor(() => expect(screen.getByText('Recommended')).toBeTruthy())
     expect(planTrip).toHaveBeenCalledWith(
-      { origin: { text: 'Amarillo', lat: 35.2, lon: -101.8 }, destination: { text: 'Oklahoma City' }, departure: '2099-01-01T10:00:00.000Z', load_lb: 36000, interval_miles: 50 },
+      { origin: { text: 'Amarillo', lat: 35.2, lon: -101.8 }, destination: { text: 'Oklahoma City' }, departure: tomorrow, load_lb: 36000, interval_miles: 50 },
       expect.any(AbortSignal),
     )
     expect((screen.getByLabelText('Load weight (lb)') as HTMLInputElement).value).toBe('36000')
+    expect(screen.queryByText(/departure in this link has passed/)).toBeNull()
   })
 
-  it('only fills the form from a link whose departure has passed', () => {
-    window.history.replaceState(null, '', '?from=Amarillo&to=Oklahoma+City&leave=2020-01-01T10:00:00.000Z&load=20000')
+  it('only fills the form from a link whose departure has passed, and says so until a plan is asked for', async () => {
+    vi.mocked(planTrip).mockResolvedValue(plan())
+    window.history.replaceState(null, '', `?from=Amarillo&to=Oklahoma+City&leave=${yesterday}&load=20000`)
     render(<App />)
     expect(planTrip).not.toHaveBeenCalled()
     expect((screen.getByLabelText('Origin') as HTMLInputElement).value).toBe('Amarillo')
+    const note = screen.getByText('The departure in this link has passed; choose a new time and plan again.')
+    expect(note.className).toBe('note')
+    expect(screen.queryByRole('alert')).toBeNull()
+    fireEvent.click(screen.getByText('Plan routes'))
+    expect(screen.queryByText(/departure in this link has passed/)).toBeNull()
+    await waitFor(() => expect(screen.getByText('Recommended')).toBeTruthy())
+    expect(planTrip).toHaveBeenCalledTimes(1)
   })
 
   it('takes the map to a checkpoint picked from the table, until another route is chosen', async () => {
@@ -151,6 +169,24 @@ describe('App', () => {
     ask()
     await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('No road route between those places.'))
     expect(screen.queryByText('Recommended')).toBeNull()
+    // On a phone the line lands under the fold of the form, so it is brought on screen.
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' })
+  })
+
+  it('takes down its own error when the form refuses the next attempt, so one problem shows at a time', async () => {
+    vi.mocked(planTrip).mockResolvedValueOnce(plan())
+    render(<App />)
+    ask()
+    await waitFor(() => expect(screen.getByText('Recommended')).toBeTruthy())
+    vi.mocked(planTrip).mockImplementation(() => Promise.reject(new ApiError(503, 'try again in a minute')))
+    ask()
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Try again in a minute. The plan below is the previous one.'))
+    fireEvent.change(screen.getByLabelText('Load weight (lb)'), { target: { value: '250000' } })
+    fireEvent.click(screen.getByText('Plan routes'))
+    const alerts = screen.getAllByRole('alert')
+    expect(alerts).toHaveLength(1)
+    expect(alerts[0].textContent).toMatch(/between 0 and 200,000/)
+    expect(planTrip).toHaveBeenCalledTimes(2)
   })
 
   it('names the places as resolved and shows the warning when nothing is clear to drive', async () => {
