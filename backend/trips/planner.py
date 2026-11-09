@@ -132,7 +132,9 @@ def plan(origin, destination, departure, load_lb, interval=None):
 
 def find_routes(origin, destination):
     """The routes for a pair of places and how many side requests failed, from the cache when it has them."""
-    key = "routes:%.4f,%.4f:%.4f,%.4f" % (*origin, *destination)
+    # The number in the key goes up whenever what is stored changes shape,
+    # so that entries written by an older copy of the code are passed over.
+    key = "routes2:%.4f,%.4f:%.4f,%.4f" % (*origin, *destination)
     found = cache.get(key)
     if found is None:
         found = osrm.find(origin, destination)

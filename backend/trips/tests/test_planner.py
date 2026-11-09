@@ -106,13 +106,13 @@ class PlanTests(CacheTestCase):
         with mock.patch.object(cache, "set", wraps=cache.set) as set_:
             result = plan(ORIGIN, DESTINATION, self.departure, 20_000)
         self.assertIn("did not answer every request", result["notes"][1])
-        routes_call = next(c for c in set_.call_args_list if c.args[0].startswith("routes:"))
+        routes_call = next(c for c in set_.call_args_list if c.args[0].startswith("routes2:"))
         self.assertEqual(routes_call.args[2], planner.SHORT_CACHE_SECONDS)
 
     def test_a_full_set_is_kept_for_a_day(self):
         with mock.patch.object(cache, "set", wraps=cache.set) as set_:
             plan(ORIGIN, DESTINATION, self.departure, 20_000)
-        routes_call = next(c for c in set_.call_args_list if c.args[0].startswith("routes:"))
+        routes_call = next(c for c in set_.call_args_list if c.args[0].startswith("routes2:"))
         self.assertEqual(routes_call.args[2], planner.ROUTES_CACHE_SECONDS)
 
     def test_each_forecast_point_is_asked_for_once(self):
