@@ -79,23 +79,3 @@ jobs:
       - name: The front page is served by the same container
         run: curl -fsS http://localhost:8000/ | grep -q '<div id="root">'
 
-  # The hosted copy: a Docker Space on Hugging Face, given this tree once the
-  # suites and the image have passed on main, with a README of the Space's
-  # own that carries its settings. Set the HF_TOKEN secret (a write token)
-  # and the HF_SPACE variable (user/space) to turn it on.
-  space:
-    if: github.ref == 'refs/heads/main' && vars.HF_SPACE != ''
-    needs: [backend, frontend, image]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - name: Push the tree to the Space
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_SPACE: ${{ vars.HF_SPACE }}
-        run: |
-          git checkout -q --orphan space
-          cp .github/space/README.md README.md
-          git add -A
-          git -c user.name='Zuraiz Anjum' -c user.email='zuraizwork@gmail.com' commit -q -m "Deploy ${GITHUB_SHA::7}"
-          git push -q --force "https://${HF_SPACE%%/*}:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE}" space:main

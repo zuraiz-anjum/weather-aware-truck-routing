@@ -1,7 +1,6 @@
-# A free Space on Hugging Face sleeps after two idle days, a free Render
-# service after fifteen idle minutes. A health check every ten keeps the
-# hosted demo awake and answering at once. Set the APP_URL repository
-# variable to the service's address to turn this on.
+# Render's free plan sleeps a service after fifteen idle minutes. A health
+# check every ten keeps the hosted demo answering at once. Set the APP_URL
+# repository variable to the service's address to turn this on.
 name: keep-warm
 
 on:
