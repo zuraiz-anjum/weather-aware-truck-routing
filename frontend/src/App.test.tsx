@@ -125,7 +125,9 @@ describe('App', () => {
       points: [[35.2, -101.8], [35.3, -101.0]] as [number, number][],
     }
     const hourly = { time: [1, 2], wind_speed_10m: [5, 6], rain: [0, 0], showers: [0, 0], snowfall: [0, 0] }
-    const fetched = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => [{ hourly }, { hourly }] })
+    // The fetch is answered by hand, so the page can be seen in the meantime.
+    let answer: (response: unknown) => void = () => {}
+    const fetched = vi.fn().mockImplementation(() => new Promise((resolve) => (answer = resolve)))
     vi.stubGlobal('fetch', fetched)
     try {
       vi.mocked(planTrip)
@@ -133,6 +135,9 @@ describe('App', () => {
         .mockResolvedValueOnce(plan())
       render(<App />)
       ask()
+      await waitFor(() => expect(screen.getByRole('status').textContent).toContain('fetched through this browser'))
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' }) // brought on screen, as an error is
+      answer({ ok: true, status: 200, json: async () => [{ hourly }, { hourly }] })
       await waitFor(() => expect(screen.getByText('Recommended')).toBeTruthy())
       expect(fetched).toHaveBeenCalledTimes(1)
       const url = new URL(fetched.mock.calls[0][0])
@@ -142,7 +147,6 @@ describe('App', () => {
       expect(planTrip).toHaveBeenCalledTimes(2)
       expect(vi.mocked(planTrip).mock.calls[1][0].forecast).toEqual({ points: offer.points, hourly: [hourly, hourly] })
       expect(screen.queryByRole('status')).toBeNull()
-      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', behavior: 'smooth' }) // the status line was brought on screen
     } finally {
       vi.unstubAllGlobals()
     }
