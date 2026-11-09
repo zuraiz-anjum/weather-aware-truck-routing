@@ -6,11 +6,12 @@ with three road routes, the weather each one meets at the hour the truck
 gets there, a risk level for every stretch, a recommendation, and a heatmap
 of the corridor that can be slid through the next forty-eight hours.
 
-Deployed as described at the end, it runs as one free Render service, at
-https://weather-aware-truck-routing.onrender.com once that service is up;
-the first request after a quiet spell takes half a minute while it wakes.
-Everything is in this repository: `backend/` is the Django project,
-`frontend/` the React app, and the `Dockerfile` builds both into one image.
+The hosted copy runs as one free Render service deployed from this
+repository, as described at the end; its address is the website shown in
+the repository's About box on GitHub. The first request after a quiet
+spell takes half a minute while the service wakes. Everything is in this
+repository: `backend/` is the Django project, `frontend/` the React app,
+and the `Dockerfile` builds both into one image.
 
 ## Running it on your own machine
 
@@ -25,7 +26,7 @@ cd backend
 python -m venv .venv
 .venv\Scripts\activate          # macOS and Linux: source .venv/bin/activate
 pip install -r requirements.txt
-python manage.py test           # 152 tests, no network needed
+python manage.py test           # 154 tests, no network needed
 python manage.py runserver
 ```
 
@@ -64,19 +65,19 @@ routes. For the rest, the planner routes through a point off to one side
 of the straight line between the ends: a fifth of the way out at the
 middle, then a third of the way from each end, then further out at the
 middle again. Such a point is an arbitrary spot the road has to leave and
-come back to, so a candidate whose new road gets somewhere is routed once
-more through a point on that new road itself, which gives the road
+come back to, so a candidate with ten miles or more of new road is routed
+once more through a point on that new road itself, which gives the road
 without the excursion (Phoenix to Tucson by AZ-79 comes out at 1.36 times
 the interstate's time this way rather than 2.1); candidates are looked at
-quickest first and the second routing is asked for only when one is
-reached. A candidate is kept when its longest stretch of new road is at
-least ten miles long with its ends at least half that far apart as the
-crow flies, so that the new road is at most twice the straight line
-between its ends (the genuine alternatives tried measure 0.52 to 1.0, a
-fifty-mile farm-road loop off I-27 0.39, and an out-and-back excursion
-next to nothing), no more than half of that
-stretch is on minor roads, meaning roads without a route number and county
-and forest roads whatever their number (OSRM routes a car, and will send it
+quickest first, the second routing is asked for only when one is reached,
+and the candidate and its second routing are then judged alike. A route is
+kept when its longest stretch of new road has its ends at least half that
+far apart as the crow flies, so that the new road is at most twice the
+straight line between its ends (the genuine alternatives tried measure
+0.52 to 1.0, a fifty-mile farm-road loop off I-27 0.39, and an
+out-and-back excursion next to nothing), no more than half of that stretch
+is on minor roads, meaning roads without a route number and county and
+forest roads whatever their number (OSRM routes a car, and will send it
 down a gravel county road or a parkway that no truck may use; a road whose
 name says highway, freeway or turnpike counts as one, since the map data
 sometimes leaves the number off), less than 85% of it runs within a mile
@@ -145,9 +146,11 @@ bad option and the reason for it are plain.
 **Heatmap.** The corridor is a lattice of latitude and longitude cells, a
 band of three along every route, sized so a trip is about thirty cells
 long; the legend says how wide they came out. A cell the road runs through
-is forecast at a point on the road, so it reads the same forecast as a
-checkpoint inside it, though at the slider's hour rather than the truck's
-minute; a cell beside the road is forecast at its centre. Each cell
+is forecast at the point of the road nearest its centre rather than at the
+centre itself, so it sees what the road sees; a cell beside the road is
+forecast at its centre. Cells are rated at the slider's hours and
+checkpoints at the truck's minute, so the two agree where and when they
+coincide and can differ by an hour's weather otherwise. Each cell
 carries its risk level at every hour of the slider, computed once on the
 server with the same rules and the same load. Moving the slider only swaps
 a paint expression on the GPU, so it is instant, and the truck markers move
@@ -168,7 +171,11 @@ wash; trouble is solid.
 }
 ```
 
-`lat` and `lon` are optional (text alone is geocoded), `interval_miles` is
+`lat` and `lon` are optional (text alone is geocoded) and have to lie in
+North America, latitude 15 to 72 and longitude -180 to -64, the box the
+suggestions come from (a trip in Canada or Mexico can be planned by
+coordinates, with what OSRM and Open-Meteo know of the roads and weather
+there), `interval_miles` is
 optional and one of 10, 25 or 50, and the departure may be up to an hour in
 the past or thirteen days less an hour ahead, which with the two days of
 slider after it is what Open-Meteo's sixteen-day forecast allows at any
@@ -235,7 +242,8 @@ repository as a Blueprint and it builds from the `Dockerfile`, generates
 `DJANGO_SECRET_KEY`, and checks `/api/health/`. Free services sleep after
 fifteen idle minutes; the `keep-warm` workflow in `.github/workflows` pings
 the service every ten minutes once the repository variable `APP_URL` is set
-to its address.
+to its address. Set the repository's website on GitHub to the same address,
+since that is where the top of this file sends people.
 
 The image runs anywhere Docker does. It needs `DJANGO_SECRET_KEY`, honours
 `PORT`, and takes `DJANGO_ALLOWED_HOSTS` (Render's own hostname is picked up
@@ -245,10 +253,10 @@ self-hosted copies of the services.
 
 ## Tests and checks
 
-`python manage.py test` runs the backend's 152 tests: the risk table at
+`python manage.py test` runs the backend's 154 tests: the risk table at
 every boundary, checkpoint placement, the heatmap lattice, the polyline
 decoder against the format's reference, the OSRM stitching, the side-route
-search with its spur and unnumbered-road rules and second routing,
+search with its spur and minor-road rules and second routing,
 Open-Meteo windows, chunking, caching and the hours past the model's
 reach, the planner's ranking, and the API end to end with the services
 stubbed. Three more run against
