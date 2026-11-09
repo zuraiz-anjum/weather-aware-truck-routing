@@ -9,6 +9,7 @@ backend/staticfiles/
 frontend/node_modules/
 frontend/dist/
 frontend/node_modules/.tmp/
+frontend/test-results/
 
 # Editors and systems
 .vscode/

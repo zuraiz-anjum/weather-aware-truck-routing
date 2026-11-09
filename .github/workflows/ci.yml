@@ -56,6 +56,10 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+      # The built app in a real browser: the map's worker, tiles and layers
+      # are beyond jsdom, and the dev server hides what bundling changes.
+      - run: npx playwright install --with-deps chromium
+      - run: npm run e2e
 
   image:
     runs-on: ubuntu-latest

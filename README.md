@@ -281,9 +281,17 @@ planner. They exist because the stubs can only check what the code
 expects, not what the services accept. `npm test` runs the frontend's 29:
 time and distance helpers, the form's validation and payload, the place
 suggestions, the route cards, and the app's planning flow with the map
-stubbed out, since jsdom has no WebGL. CI runs both suites, the live tests
-as an advisory job, type-checks and lints the frontend, builds the image,
-starts it, and checks that it serves the API and the page.
+stubbed out, since jsdom has no WebGL. `npm run e2e`, after `npm run
+build`, opens the built app in a real browser (Playwright's Chromium,
+`npx playwright install chromium` once) and checks what jsdom cannot: that
+the map draws its tiles, which only happens when MapLibre's web worker has
+loaded, and that a plan's routes, markers and heatmap go onto it and the
+slider moves through it without the map complaining. It exists because
+the built app had once shipped with a blank map that the dev server never
+showed. `BASE_URL=https://... npm run e2e` runs the same checks against a
+deployed copy. CI runs all of this, the live tests as an advisory job,
+type-checks and lints the frontend, builds the image, starts it, and
+checks that it serves the API and the page.
 
 ## Layout
 
@@ -307,5 +315,6 @@ frontend/src/
   components/        TripForm, PlaceInput, RouteCards, CheckpointTable,
                      HourSlider, Legend, RouteMap (MapLibre)
   api.ts, types.ts, risk.ts, time.ts, progress.ts
+frontend/e2e/        the built app in a browser
 Dockerfile, render.yaml, .github/workflows/
 ```
