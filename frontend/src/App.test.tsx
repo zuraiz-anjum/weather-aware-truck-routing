@@ -39,6 +39,11 @@ function ask() {
   fireEvent.click(screen.getByText('Plan routes'))
 }
 
+// The countdown arms a fresh one-second timer after each tick renders, so the clock has to move a second at a time.
+async function seconds(count: number) {
+  for (let k = 0; k < count; k += 1) await act(() => vi.advanceTimersByTimeAsync(1000))
+}
+
 describe('App', () => {
   it('plans a trip, shows the routes and lets one be chosen', async () => {
     vi.mocked(planTrip).mockResolvedValue(plan({ notes: ['Only two distinct road routes were found between these places.'] }))
@@ -94,12 +99,32 @@ describe('App', () => {
         .mockResolvedValueOnce(plan())
       render(<App />)
       ask()
-      await vi.waitFor(() => expect(screen.getByRole('status').textContent).toBe('The weather service is busy; trying again in 2 s.'))
-      await act(() => vi.advanceTimersByTimeAsync(1000))
-      expect(screen.getByRole('status').textContent).toContain('trying again in 1 s')
-      await act(() => vi.advanceTimersByTimeAsync(1000))
+      await vi.waitFor(() => expect(screen.getByText(/Trying again in 2 s\./)).toBeTruthy())
+      expect(screen.getByRole('status').textContent).toBe('The weather service is busy for the moment; the plan will be asked for again by itself.')
+      await seconds(1)
+      expect(screen.getByText(/Trying again in 1 s\./)).toBeTruthy()
+      await seconds(1)
       await vi.waitFor(() => expect(screen.getByText('Recommended')).toBeTruthy())
       expect(planTrip).toHaveBeenCalledTimes(2)
+      expect(screen.queryByRole('status')).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gives up after a third busy answer and shows what the server said', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.mocked(planTrip).mockImplementation(() => Promise.reject(new ApiError(503, 'try again in a minute', 2)))
+      render(<App />)
+      ask()
+      await vi.waitFor(() => expect(screen.getByText(/Trying again in 2 s\./)).toBeTruthy())
+      await seconds(2)
+      await vi.waitFor(() => expect(planTrip).toHaveBeenCalledTimes(2))
+      await vi.waitFor(() => expect(screen.getByText(/Trying again in 2 s\./)).toBeTruthy())
+      await seconds(2)
+      await vi.waitFor(() => expect(screen.getByRole('alert').textContent).toBe('try again in a minute'))
+      expect(planTrip).toHaveBeenCalledTimes(3)
       expect(screen.queryByRole('status')).toBeNull()
     } finally {
       vi.useRealTimers()

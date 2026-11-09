@@ -19,14 +19,14 @@ export default function App() {
   const [hour, setHour] = useState(0)
   const [retryIn, setRetryIn] = useState<number | null>(null) // seconds until a busy weather service is asked again
   const pending = useRef<AbortController | null>(null)
-  const lastRequest = useRef<PlanRequest | null>(null)
+  const lastRequest = useRef<{ request: PlanRequest; attempt: number } | null>(null)
   const overlay = useRef<HTMLDivElement>(null)
 
-  const submit = useCallback(async (request: PlanRequest) => {
+  const submit = useCallback(async (request: PlanRequest, attempt = 1) => {
     pending.current?.abort()
     const controller = new AbortController()
     pending.current = controller
-    lastRequest.current = request
+    lastRequest.current = { request, attempt }
     setBusy(true)
     setError(null)
     setRetryIn(null)
@@ -37,8 +37,11 @@ export default function App() {
       setHour(0)
     } catch (failure: unknown) {
       if (failure instanceof DOMException && failure.name === 'AbortError') return
-      // The weather service's allowance for the minute is spent: wait it out and ask again by itself.
-      if (failure instanceof ApiError && failure.status === 503 && failure.retryAfter !== null && failure.retryAfter <= 90) {
+      // The weather service's allowance for the minute is spent: wait it out
+      // and ask again by itself, twice at most, then say what the server said.
+      const busyForAMoment =
+        failure instanceof ApiError && failure.status === 503 && failure.retryAfter !== null && failure.retryAfter <= 90
+      if (busyForAMoment && attempt < 3) {
         setRetryIn(failure.retryAfter)
         return
       }
@@ -52,7 +55,7 @@ export default function App() {
     if (retryIn === null || retryIn <= 0) return
     const timer = setTimeout(() => {
       if (retryIn > 1) setRetryIn(retryIn - 1)
-      else if (lastRequest.current) void submit(lastRequest.current)
+      else if (lastRequest.current) void submit(lastRequest.current.request, lastRequest.current.attempt + 1)
     }, 1000)
     return () => clearTimeout(timer)
   }, [retryIn, submit])
@@ -78,8 +81,10 @@ export default function App() {
           </p>
         )}
         {retryIn !== null && (
-          <p className="problem" role="status">
-            The weather service is busy; trying again in {retryIn} s.{stale && ' The plan below is the previous one.'}
+          // Only the sentence is a live region, so a screen reader hears it once and not every second of the count.
+          <p className="waiting">
+            <span role="status">The weather service is busy for the moment; the plan will be asked for again by itself.</span> Trying
+            again in {retryIn} s.{stale && ' The plan below is the previous one.'}
           </p>
         )}
         {plan && (
