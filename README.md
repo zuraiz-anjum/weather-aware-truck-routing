@@ -6,9 +6,21 @@ with three road routes, the weather each one meets at the hour the truck
 gets there, a risk level for every stretch, a recommendation, and a heatmap
 of the corridor that can be slid through the next forty-eight hours.
 
+| | |
+|---|---|
+| **Live app** | https://weather-aware-truck-routing-smxk.onrender.com |
+| **API** | [`/api/health/`](https://weather-aware-truck-routing-smxk.onrender.com/api/health/), and `POST /api/plan/` as described below |
+| **Walkthrough** | _Loom, to follow_ |
+
+![Denver to Salt Lake City, with the heatmap a day after departure](docs/app-heatmap.png)
+
+**Denver to Salt Lake City on a calm November night.** Route A by I-80 is
+recommended as the quickest, since no route meets worse weather; the
+slider stands a day on, when two cells near Laramie turn Moderate for
+wind. The colours come as the weather does.
+
 The hosted copy runs as one free Render service built from this
-repository's `Dockerfile`, as described at the end; its address is the
-website shown in the repository's About box on GitHub. The first request
+repository's `Dockerfile`, as described at the end. The first request
 after a quiet spell takes half a minute while the service wakes.
 Everything is in this repository: `backend/` is the Django project,
 `frontend/` the React app, and the `Dockerfile` builds both into one image.
@@ -174,6 +186,12 @@ link can be sent on: opening it fills the form and, if the departure is
 still ahead, plans again. Three example trips under the form plan with one
 click, for a first look.
 
+On a phone the map takes the top of the screen and the rest scrolls under
+it; a tap on a dot opens its reading, and a row of the table takes the map
+to that checkpoint.
+
+<img src="docs/app-phone.png" width="320" alt="The same plan on a phone">
+
 ## The API
 
 `POST /api/plan/` with a JSON body:
@@ -238,7 +256,11 @@ hour or the day is spent, and 429 past 20 plans a minute from one address
   fresh plans of long trips in one minute are fine, and a few dozen a day; past
   an allowance the API answers 503 with a `Retry-After` and says whether
   to wait a minute, an hour or a day, and when it is the minute's the page
-  counts it down and asks again by itself, twice at most.
+  counts it down and asks again by itself, twice at most. The allowance is
+  counted by address, and a shared host's outbound address is shared by
+  its other tenants, so the hosted copy can meet a spent allowance that
+  its own traffic did not spend; a copy run from the image on a machine
+  of one's own has an allowance to itself.
 - The model runs sixteen days out from its own start, so between midnight
   UTC and the arrival of the day's first run, around 04:30, the last few
   hours of the sixteenth day come back empty. They are cut off the end of
