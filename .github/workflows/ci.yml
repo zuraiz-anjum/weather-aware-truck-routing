@@ -68,7 +68,7 @@ jobs:
       - run: docker build -t truckweather .
       - name: Start the container and wait for it to answer
         run: |
-          docker run -d --name app -p 8000:8000 -e DJANGO_SECRET_KEY=ci truckweather
+          docker run -d --name app -p 8000:8000 -e DJANGO_SECRET_KEY=ci -e DJANGO_ALLOWED_HOSTS=trucks.example.com truckweather
           for i in $(seq 1 30); do
             if curl -fsS http://localhost:8000/api/health/; then exit 0; fi
             sleep 2

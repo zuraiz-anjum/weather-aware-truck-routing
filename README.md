@@ -260,6 +260,13 @@ the service every ten minutes once the repository variable `APP_URL` is set
 to its address. Set the repository's website on GitHub to the same address,
 since that is where the top of this file sends people.
 
+Outside `manage.py` the settings are production's unless `DJANGO_DEBUG=1`
+is set: debugging off, a secret key required, HTTPS taken from the
+proxy's header, a month of HSTS. `manage.py` turns debugging on, which is
+why `runserver` and the tests need nothing set. The loopback names are
+always allowed, so the container's own health check passes whatever the
+site is called.
+
 The image runs anywhere Docker does. The React files in it are compressed
 once, when it is built, with brotli and gzip, and WhiteNoise serves the
 stored copies with a year's cache life, since Vite names them by their

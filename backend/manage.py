@@ -7,6 +7,10 @@ import sys
 def main():
     """Run administrative tasks."""
     os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'truckweather.settings')
+    # The development command line: runserver and the tests run with
+    # debugging on unless told otherwise. Served through wsgi.py, the
+    # defaults are production's.
+    os.environ.setdefault('DJANGO_DEBUG', '1')
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:

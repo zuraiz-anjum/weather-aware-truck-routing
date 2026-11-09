@@ -3,7 +3,9 @@ Settings for the weather-aware truck routing service.
 
 Anything that differs between a laptop and a server comes from the
 environment: DJANGO_DEBUG, DJANGO_SECRET_KEY, DJANGO_ALLOWED_HOSTS, CACHE_DIR
-and the base URLs of the three outside services.
+and the base URLs of the three outside services. With nothing set the
+settings are production's; manage.py turns debugging on for the
+development command line.
 """
 
 import os
@@ -14,18 +16,20 @@ from django.core.exceptions import ImproperlyConfigured
 BASE_DIR = Path(__file__).resolve().parent.parent
 FRONTEND_DIST = BASE_DIR.parent / "frontend" / "dist"
 
-DEBUG = os.environ.get("DJANGO_DEBUG", "1") == "1"
+DEBUG = os.environ.get("DJANGO_DEBUG", "0") == "1"
 
 SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
 if not SECRET_KEY:
     if not DEBUG:
-        raise ImproperlyConfigured("set DJANGO_SECRET_KEY when DJANGO_DEBUG is 0")
+        raise ImproperlyConfigured("set DJANGO_SECRET_KEY, or DJANGO_DEBUG=1 for development")
     SECRET_KEY = "development-only-not-a-secret"
 
-ALLOWED_HOSTS = [h for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h]
+ALLOWED_HOSTS = [h for h in os.environ.get("DJANGO_ALLOWED_HOSTS", "").split(",") if h]
 # Render tells a service its own hostname.
 if os.environ.get("RENDER_EXTERNAL_HOSTNAME"):
     ALLOWED_HOSTS.append(os.environ["RENDER_EXTERNAL_HOSTNAME"])
+# The container's own health check asks as 127.0.0.1 whatever the site is called.
+ALLOWED_HOSTS += [h for h in ("localhost", "127.0.0.1", "[::1]") if h not in ALLOWED_HOSTS]
 
 if not DEBUG:
     # Behind a proxy that terminates TLS and sets X-Forwarded-Proto.

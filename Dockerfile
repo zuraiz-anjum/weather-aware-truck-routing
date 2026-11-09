@@ -10,7 +10,6 @@ RUN npm run build
 FROM python:3.13-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    DJANGO_DEBUG=0 \
     CACHE_DIR=/tmp/truckweather-cache
 WORKDIR /app
 COPY backend/requirements.txt backend/
