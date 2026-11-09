@@ -47,4 +47,13 @@ describe('RouteCards', () => {
     render(<RouteCards plan={withDetour} selected="A" onSelect={vi.fn()} />)
     expect(screen.getByText(/routing through a point to one side/)).toBeTruthy()
   })
+
+  it('names the unnumbered roads when there are more than a few miles of them', () => {
+    const forest = plan()
+    forest.routes[0] = { ...forest.routes[0], unnumbered_miles: 31.2, unnumbered_roads: ['Kepps Crossing Road', 'Forest Road 077'] }
+    forest.routes[1] = { ...forest.routes[1], unnumbered_miles: 6.0, unnumbered_roads: ['Main Street'] }
+    render(<RouteCards plan={forest} selected="A" onSelect={vi.fn()} />)
+    expect(screen.getByText(/31 mi on roads without a route number \(Kepps Crossing Road, Forest Road 077\); check they take trucks\./)).toBeTruthy()
+    expect(screen.queryByText(/Main Street/)).toBeNull()
+  })
 })

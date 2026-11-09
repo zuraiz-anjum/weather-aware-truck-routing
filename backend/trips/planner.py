@@ -104,6 +104,8 @@ def plan(origin, destination, departure, load_lb, interval=None):
             "name": names[k],
             "detour": route.detour,
             "distance_miles": round(route.distance_miles, 1),
+            "unnumbered_miles": round(route.unnumbered_miles, 1),
+            "unnumbered_roads": route.unnumbered_roads(),
             "duration_seconds": round(route.duration_seconds),
             "arrival": (departure + timedelta(seconds=round(route.duration_seconds))).isoformat(),
             "geometry": {"type": "LineString", "coordinates": [[round(lon, 5), round(lat, 5)] for lat, lon in route.line.points]},

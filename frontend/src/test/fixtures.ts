@@ -28,6 +28,8 @@ export function route(id: string, overrides: Partial<Route> = {}): Route {
     name: 'via I-40 and US-287',
     detour: false,
     distance_miles: 100,
+    unnumbered_miles: 0,
+    unnumbered_roads: [],
     duration_seconds: 7200,
     arrival: new Date(Date.parse(DEPARTURE) + 7200 * 1000).toISOString(),
     geometry: {

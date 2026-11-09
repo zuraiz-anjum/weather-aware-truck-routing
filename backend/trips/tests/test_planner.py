@@ -21,7 +21,8 @@ def three_routes():
     return [
         fake_route(east_west_line(35.0, -100.0, 200), 3 * 3600, roads={"I-40": 180.0, "US-83": 20.0}),
         fake_route(east_west_line(35.5, -100.0, 200), 3.2 * 3600, roads={"I-40": 120.0, "US-60": 80.0}),
-        fake_route(east_west_line(34.5, -100.0, 200), 3.8 * 3600, detour=True, roads={"US-70": 200.0}),
+        fake_route(east_west_line(34.5, -100.0, 200), 3.8 * 3600, detour=True, roads={"US-70": 200.0},
+                   unnumbered=[(10.0, 41.5, "Kepps Crossing Road"), (60.0, 62.0, "Mill Road")]),
     ]
 
 
@@ -46,6 +47,8 @@ class PlanTests(CacheTestCase):
         self.assertTrue(routes[0]["summary"]["recommended"])
         self.assertEqual(routes[0]["summary"]["reason"], "the quickest route, and no other scores better on weather")
         self.assertIsNone(routes[1]["summary"]["reason"])
+        self.assertEqual([r["unnumbered_miles"] for r in routes], [0.0, 33.5, 0.0])
+        self.assertEqual(routes[1]["unnumbered_roads"], ["Kepps Crossing Road", "Mill Road"])
         self.assertEqual(routes[2]["summary"]["worst_level"], SEVERE)
         self.assertEqual(routes[2]["summary"]["miles_by_level"][SEVERE], routes[2]["distance_miles"])
         self.assertEqual(routes[0]["summary"]["miles_by_level"][LOW], routes[0]["distance_miles"])

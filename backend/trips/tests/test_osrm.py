@@ -4,9 +4,10 @@ import requests
 from django.test import SimpleTestCase, override_settings
 
 import trips.osrm
-from trips.geometry import haversine_miles
-from trips.geometry import MILES_PER_DEGREE
-from trips.osrm import METRES_PER_MILE, NoRoute, Route, RoutingError, alternatives, beside, bridging, distinct, find, road_name, via
+from trips.geometry import MILES_PER_DEGREE, haversine_miles, interpolate
+from trips.osrm import (
+    METRES_PER_MILE, NoRoute, Route, RoutingError, alternatives, beside, bridging, distinct, find, numbered, road_name, via,
+)
 
 from .support import FakeResponse, fake_route, osrm_route, osrm_step
 from .test_geometry import east_west_line
@@ -49,6 +50,26 @@ class RequestTests(SimpleTestCase):
         self.assertFalse(route.detour)
         self.assertEqual(set(route.roads), {"I-40", "Elm Street"})
         self.assertAlmostEqual(route.roads["I-40"], miles(A, B))
+        (stretch,) = route.unnumbered  # Elm Street has no route number; the arrive step has no length
+        self.assertAlmostEqual(stretch[0], miles(A, B))
+        self.assertAlmostEqual(stretch[1], miles(A, B) + miles(B, C))
+        self.assertEqual(stretch[2], "Elm Street")
+        self.assertAlmostEqual(route.unnumbered_miles, miles(B, C))
+
+    def test_unnumbered_stretches_are_merged_by_road_and_measured_between_miles(self):
+        steps = [
+            osrm_step([A, B], miles(A, B) * METRES_PER_MILE, 600, name="Elm Street"),
+            osrm_step([B, C], miles(B, C) * METRES_PER_MILE, 600, name="Elm Street"),
+            osrm_step([C, D], miles(C, D) * METRES_PER_MILE, 600, name="Oak Street"),
+        ]
+        total = miles(A, B) + miles(B, C) + miles(C, D)
+        self.answer(body(osrm_route([steps], total * METRES_PER_MILE, 1800)))
+        (route,) = alternatives(A, D)
+        self.assertEqual([name for _, _, name in route.unnumbered], ["Elm Street", "Oak Street"])
+        self.assertAlmostEqual(route.unnumbered_miles, total)
+        self.assertAlmostEqual(route.unnumbered_between(0.0, miles(A, B)), miles(A, B))
+        self.assertAlmostEqual(route.unnumbered_between(total - 1.0, total + 50.0), 1.0)
+        self.assertEqual(route.unnumbered_roads(limit=1), ["Elm Street" if miles(A, B) + miles(B, C) > miles(C, D) else "Oak Street"])
 
     def test_seconds_are_spread_along_a_step_by_distance(self):
         mid = (35.0, -99.75)  # a bend, so it survives the thinning
@@ -58,7 +79,7 @@ class RequestTests(SimpleTestCase):
         share = miles(A, mid) / (miles(A, mid) + miles(mid, B))
         self.assertEqual(route.line.points, [A, mid, B])
         self.assertAlmostEqual(route.seconds[1], 1000 * share, places=3)
-        self.assertAlmostEqual(route.seconds_at(route.line.miles[1] / 2), 500 * share, places=3)
+        self.assertAlmostEqual(interpolate(route.line.miles, route.seconds, route.line.miles[1] / 2), 500 * share, places=3)
 
     def test_the_clock_lands_on_the_route_time_when_the_steps_do_not_add_up(self):
         route = two_step_route()
@@ -76,7 +97,7 @@ class RequestTests(SimpleTestCase):
         (route,) = alternatives(straight[0], straight[-1])
         self.assertEqual(len(route.line.points), 2)
         self.assertEqual(route.seconds, [0.0, 1200.0])
-        self.assertAlmostEqual(route.seconds_at(5.0), 300.0, places=6)
+        self.assertAlmostEqual(interpolate(route.line.miles, route.seconds, 5.0), 300.0, places=6)
 
     def test_request_shape(self):
         get = self.answer(body(two_step_route()))
@@ -144,6 +165,15 @@ class RoadNameTests(SimpleTestCase):
         self.assertEqual(road_name({"ref": "", "name": "Elm Street"}), "Elm Street")
         self.assertIsNone(road_name({"ref": "", "name": ""}))
         self.assertIsNone(road_name({}))
+
+    def test_which_roads_count_as_numbered(self):
+        for step in ({"ref": "I 40"}, {"ref": "US 54; NM 2"}, {"ref": "CR 61", "name": "Mill Road"},
+                     {"name": "US Highway 54 South"}, {"name": "North Sacramento Freeway"},
+                     {"name": "Homestead Extension of Florida's Turnpike"}, {"name": "Old Hwy 99"}):
+            self.assertTrue(numbered(step), step)
+        for step in ({"ref": "NF 15"}, {"ref": "FR 077", "name": "National Forest Development Road 077"},
+                     {"name": "Saw Mill River Parkway"}, {"name": "Camp Creek Road"}, {"name": "Highwayman Lane"}, {}):
+            self.assertFalse(numbered(step), step)
 
 
 class BesideTests(SimpleTestCase):
@@ -231,6 +261,12 @@ class BridgingTests(SimpleTestCase):
         self.assertAlmostEqual(run.gap, 100, delta=6)
         self.assertAlmostEqual(run.middle[0], 35.3)
 
+    def test_the_unnumbered_miles_of_the_new_road_are_counted(self):
+        forest = fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3.4, detour=True, unnumbered=[(50.0, 150.0, "Forest Road")])
+        run = bridging(forest, [self.main])
+        self.assertAlmostEqual(run.unnumbered, 100, delta=2)
+        self.assertEqual(bridging(fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3.4, detour=True), [self.main]).unnumbered, 0.0)
+
     def test_an_out_and_back_excursion_is_a_spur(self):
         spur = fake_route(with_loop(east_west_line(35.0, -100.0, 200), 100, 12.0), 3600 * 3.3, detour=True)
         self.assertIsNone(bridging(spur, [self.main]))
@@ -273,7 +309,8 @@ class FindTests(SimpleTestCase):
         wiggly = fake_route(with_loop(east_west_line(35.3, -100.0, 200), 100, 10.0), 3600 * 4.5, detour=True)
         clean = fake_route(east_west_line(35.3, -100.0, 200), 3600 * 3.3, detour=True)
         self.sides = {35.4: wiggly, 35.3: clean}
-        found = find((35.0, -100.0), (35.0, -96.5))
+        with self.assertLogs("trips.osrm", "INFO"):  # the southern side point has nothing
+            found = find((35.0, -100.0), (35.0, -96.5))
         self.assertIn(clean, found.routes)
         self.assertNotIn(wiggly, found.routes)
 
@@ -283,11 +320,54 @@ class FindTests(SimpleTestCase):
         found = find((35.0, -100.0), (35.0, -96.5))
         self.assertEqual(len(found.routes), 1)
 
+    def test_a_new_road_mostly_without_a_route_number_is_refused(self):
+        forest = fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3.2, detour=True, unnumbered=[(20.0, 180.0, "Forest Road")])
+        county = fake_route(east_west_line(34.6, -100.0, 200), 3600 * 3.4, detour=True, unnumbered=[(20.0, 60.0, "County Road 12")])
+        self.sides = {35.4: forest, 34.6: county}
+        found = find((35.0, -100.0), (35.0, -96.5))
+        self.assertEqual(found.routes, [self.offered[0], county])
+        self.assertEqual(found.missed, 0)
+
+    def test_a_candidate_is_routed_again_only_when_it_is_reached(self):
+        self.offered.append(fake_route(east_west_line(35.8, -100.0, 200), 3600 * 3.1))
+        north = fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3.4, detour=True)
+        south = fake_route(east_west_line(34.6, -100.0, 200), 3600 * 3.2, detour=True)
+        self.sides = {35.4: north, 34.6: south}
+        with mock.patch("trips.osrm.via", wraps=self.side) as via_:
+            found = find((35.0, -100.0), (35.0, -96.5))
+        self.assertEqual(len(found.routes), 3)
+        self.assertNotIn(north, found.routes)
+        self.assertEqual(via_.call_count, 3)  # the first pair, then the quicker one again through its own road
+
+    def test_a_failed_request_is_not_held_against_a_full_set(self):
+        north = fake_route(east_west_line(35.4, -100.0, 200), 3600 * 3.4, detour=True)
+        south = fake_route(east_west_line(34.6, -100.0, 200), 3600 * 3.2, detour=True)
+        self.sides = {35.4: north, 34.6: south}
+
+        def via_(origin, through, destination):
+            if through[1] != -99.0:  # not a side point, so the routing again through the road itself
+                raise RoutingError("busy")
+            return self.side(origin, through, destination)
+
+        with mock.patch("trips.osrm.via", side_effect=via_), self.assertLogs("trips.osrm", "INFO") as logged:
+            found = find((35.0, -100.0), (35.0, -96.5))
+        self.assertEqual(len(found.routes), 3)
+        self.assertEqual(found.missed, 0)
+        self.assertEqual(len(logged.output), 2)
+
+        self.sides = {35.4: north}
+        with mock.patch("trips.osrm.via", side_effect=via_), mock.patch.object(trips.osrm, "DETOUR_ROUNDS", trips.osrm.DETOUR_ROUNDS[:1]), \
+                self.assertLogs("trips.osrm", "INFO"):
+            found = find((35.0, -100.0), (35.0, -96.5))
+        self.assertEqual(len(found.routes), 2)
+        self.assertEqual(found.missed, 2)  # the southern side point and the northern road routed again
+
     def test_every_round_is_tried_before_giving_up_and_failures_are_counted(self):
         same = fake_route(east_west_line(35.0, -100.0, 200), 3600 * 3.1, detour=True)
         self.sides = {35.4: same}
         spots = []
-        with mock.patch("trips.osrm.beside", side_effect=lambda o, d, f, s, offset: spots.append((f, s, offset)) or (35.0 + 0.4 * s, -99.0)):
+        with mock.patch("trips.osrm.beside", side_effect=lambda o, d, f, s, offset: spots.append((f, s, offset)) or (35.0 + 0.4 * s, -99.0)), \
+                self.assertLogs("trips.osrm", "INFO"):
             found = find((35.0, -100.0), (35.0, -96.5))
         self.assertEqual(len(found.routes), 1)
         self.assertEqual(found.missed, 4)  # the southern point failed in every round
@@ -312,7 +392,7 @@ class FindTests(SimpleTestCase):
 
     def test_three_offered_routes_need_no_side_points(self):
         self.offered = [fake_route(east_west_line(35.0 + k * 0.3, -100.0, 200), 3600 * (3 + k)) for k in range(3)]
-        with mock.patch("trips.osrm.via", side_effect=RoutingError("unused")) as via_:
+        with mock.patch("trips.osrm.via", side_effect=RoutingError("unused")) as via_, self.assertLogs("trips.osrm", "INFO"):
             found = find((35.0, -100.0), (35.0, -96.5))
         self.assertEqual(len(found.routes), 3)
         self.assertEqual(via_.call_count, 2)  # the first pair goes out regardless; the second does not

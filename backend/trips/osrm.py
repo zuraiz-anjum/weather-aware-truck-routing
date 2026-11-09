@@ -15,6 +15,7 @@ honestly have fewer than three.
 
 import logging
 import math
+import re
 from collections import namedtuple
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -24,7 +25,7 @@ from django.conf import settings
 
 from . import polyline
 from .geometry import (
-    MILES_PER_DEGREE, Polyline, haversine_miles, interpolate, near_mask, passes_once, shared_fraction, simplify_indices,
+    MILES_PER_DEGREE, Polyline, haversine_miles, near_mask, passes_once, shared_fraction, simplify_indices,
 )
 
 log = logging.getLogger(__name__)
@@ -49,13 +50,16 @@ DETOUR_MAX_MILES = 150.0
 # A candidate is a route of its own when its longest stretch of new road is
 # at least MIN_NEW_MILES long with its ends at least SPREAD of that apart
 # (an excursion that leaves a road and comes back to the same place is not
-# a route), when less than MOSTLY_SHARED of it runs within a mile of a route
-# already in hand, and when it is no slower than SLOWER_AT_MOST times the
-# quickest: a safer road half as long again is still one a dispatcher would
-# want to see.
+# a route), when no more than UNNUMBERED_AT_MOST of that stretch is on roads
+# without a route number (OSRM routes a car, and will happily send it down
+# a forest road or a parkway that no truck may use), when less than
+# MOSTLY_SHARED of it runs within a mile of a route already in hand, and
+# when it is no slower than SLOWER_AT_MOST times the quickest: a safer road
+# half as long again is still one a dispatcher would want to see.
 SAMPLE_MILES = 2.0
 MIN_NEW_MILES = 10.0
 SPREAD = 0.4
+UNNUMBERED_AT_MOST = 0.5
 MOSTLY_SHARED = 0.85
 SLOWER_AT_MOST = 1.6
 
@@ -75,14 +79,28 @@ class Route:
     distance_miles: float
     duration_seconds: float
     roads: dict  # road name -> miles driven on it
+    unnumbered: list  # (from mile, to mile, name) of each stretch on a road without a route number
     detour: bool  # found through a side point rather than offered by OSRM
 
-    def seconds_at(self, mile):
-        return interpolate(self.line.miles, self.seconds, mile)
+    @property
+    def unnumbered_miles(self):
+        return sum(to - start for start, to, _ in self.unnumbered)
+
+    def unnumbered_between(self, a, b):
+        """Miles of unnumbered road between mile a and mile b."""
+        return sum(max(0.0, min(b, to) - max(a, start)) for start, to, _ in self.unnumbered)
+
+    def unnumbered_roads(self, limit=2):
+        """The unnumbered roads driven furthest, by name, furthest first."""
+        miles = {}
+        for start, to, name in self.unnumbered:
+            if name:
+                miles[name] = miles.get(name, 0.0) + to - start
+        return sorted(miles, key=miles.get, reverse=True)[:limit]
 
 
-Found = namedtuple("Found", "routes missed")  # missed: side requests that failed, so the set may be short
-Run = namedtuple("Run", "length gap middle")
+Found = namedtuple("Found", "routes missed")  # missed: side requests that failed, when the set is short for it
+Run = namedtuple("Run", "length gap middle unnumbered")
 
 _session = requests.Session()
 
@@ -96,13 +114,13 @@ def find(origin, destination):
         first, *later = DETOUR_ROUNDS
         sides = side_routes(pool, origin, destination, first)
         routes = offered.result()
-        missed = admit(pool, origin, destination, routes, sides)
+        missed = admit(origin, destination, routes, sides)
         for spots in later:
             if len(routes) >= WANTED:
                 break
-            missed += admit(pool, origin, destination, routes, side_routes(pool, origin, destination, spots))
+            missed += admit(origin, destination, routes, side_routes(pool, origin, destination, spots))
     routes.sort(key=lambda r: r.duration_seconds)
-    return Found(routes[:WANTED], missed)
+    return Found(routes[:WANTED], missed if len(routes) < WANTED else 0)
 
 
 def side_routes(pool, origin, destination, spots):
@@ -113,7 +131,7 @@ def side_routes(pool, origin, destination, spots):
     ]
 
 
-def admit(pool, origin, destination, routes, jobs):
+def admit(origin, destination, routes, jobs):
     """Add the side routes that are roads of their own, quicker ones first; returns how many requests failed."""
     candidates, missed = [], 0
     for job in jobs:
@@ -124,23 +142,24 @@ def admit(pool, origin, destination, routes, jobs):
         except RoutingError as exc:
             missed += 1
             log.info("side route failed: %s", exc)
-    refined = {}
-    for candidate in candidates:
-        run = bridging(candidate, routes)
-        if run:
-            refined[id(candidate)] = pool.submit(via, origin, run.middle, destination)
     for candidate in sorted(candidates, key=lambda r: r.duration_seconds):
         if len(routes) >= WANTED:
             break
-        options = [candidate]
-        if id(candidate) in refined:
-            try:
-                options.append(refined[id(candidate)].result())
-            except RoutingError as exc:
-                missed += 1
-                log.info("refined side route failed: %s", exc)
-        for option in sorted(options, key=lambda r: r.duration_seconds):
-            if bridging(option, routes) and distinct(option, routes):
+        run = bridging(candidate, routes)
+        if run is None:
+            continue
+        # Routed once more through its own new road, which gives the road
+        # without the excursion to the side point, and only now, since a
+        # candidate that is not reached is not worth a request.
+        options = [(candidate, run)]
+        try:
+            again = via(origin, run.middle, destination)
+            options.append((again, bridging(again, routes)))
+        except RoutingError as exc:
+            missed += 1
+            log.info("side route through its own road failed: %s", exc)
+        for option, run in sorted(options, key=lambda pair: pair[0].duration_seconds):
+            if run and run.unnumbered <= UNNUMBERED_AT_MOST * run.length and distinct(option, routes):
                 routes.append(option)
                 break
     return missed
@@ -166,7 +185,8 @@ def bridging(route, others):
                 # side point and back, nor at the turn.
                 middle = (start + i) // 2
                 single = [k for k in range(start, i) if all(once[max(start, k - 3) : min(i, k + 4)])] or [middle]
-                best = Run(length, gap, mine[min(single, key=lambda k: abs(k - middle))])
+                unnumbered = route.unnumbered_between(start * SAMPLE_MILES, i * SAMPLE_MILES)
+                best = Run(length, gap, mine[min(single, key=lambda k: abs(k - middle))], unnumbered)
             start = None
     return best
 
@@ -231,15 +251,23 @@ def _route(data, detour):
 
 def _stitch(data, detour):
     """One Route from OSRM's legs and steps, with a clock on every vertex."""
-    points, seconds, roads = [], [], {}
-    clock = 0.0
+    points, seconds, roads, unnumbered = [], [], {}, []
+    clock = mile = 0.0
     for leg in data["legs"]:
         for step in leg["steps"]:
             shape = polyline.decode(step["geometry"])
             duration = float(step["duration"])
+            length = float(step["distance"]) / METRES_PER_MILE
             road = road_name(step)
             if road:
-                roads[road] = roads.get(road, 0.0) + float(step["distance"]) / METRES_PER_MILE
+                roads[road] = roads.get(road, 0.0) + length
+            if length and not numbered(step):
+                name = step.get("name") or ""
+                if unnumbered and unnumbered[-1][1] == mile and unnumbered[-1][2] == name:
+                    unnumbered[-1] = (unnumbered[-1][0], mile + length, name)
+                else:
+                    unnumbered.append((mile, mile + length, name))
+            mile += length
             along = [0.0]
             for a, b in zip(shape, shape[1:]):
                 along.append(along[-1] + haversine_miles(*a, *b))
@@ -257,7 +285,7 @@ def _stitch(data, detour):
         seconds = [s * duration / clock for s in seconds]
     kept = simplify_indices(points, SHAPE_TOLERANCE_MILES)
     line = Polyline([points[i] for i in kept], distance)
-    return Route(line, [seconds[i] for i in kept], distance, duration, roads, detour)
+    return Route(line, [seconds[i] for i in kept], distance, duration, roads, unnumbered, detour)
 
 
 def road_name(step):
@@ -269,3 +297,18 @@ def road_name(step):
             return f"{head}-{tail}"
         return ref
     return step.get("name") or None
+
+
+# A forest road's number is not a route number, and a road whose name says
+# what it is ("US Highway 54 South", "North Sacramento Freeway") is a
+# numbered road that the map data left the ref off.
+FOREST_ROADS = ("NF", "FR", "FS", "NFD")
+HIGHWAY_BY_NAME = re.compile(r"\b(highway|hwy|freeway|fwy|expressway|expy|turnpike|tpke|tollway|interstate)\b", re.I)
+
+
+def numbered(step):
+    """Whether a step runs on a road with a route number, which is what a truck can count on."""
+    ref = (step.get("ref") or "").split(";")[0].strip()
+    if ref:
+        return ref.partition(" ")[0].upper() not in FOREST_ROADS
+    return bool(HIGHWAY_BY_NAME.search(step.get("name") or ""))

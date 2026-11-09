@@ -62,8 +62,21 @@ function RouteCard({ route, selected, onSelect }: { route: Route; selected: bool
       </p>
       {summary.reason && <p className="reason">{summary.reason[0].toUpperCase() + summary.reason.slice(1)}.</p>}
       {route.detour && <p className="small muted">Found by routing through a point to one side of the direct line.</p>}
+      {worthAWord(route) && (
+        <p className="small muted">
+          {Math.round(route.unnumbered_miles)} mi on roads without a route number
+          {route.unnumbered_roads.length > 0 && ` (${route.unnumbered_roads.join(', ')})`}; check they take trucks.
+        </p>
+      )}
     </article>
   )
+}
+
+// City streets at either end put a few miles of unnumbered road on any route.
+// More than that is worth a word, since the routing engine drives a car and
+// a forest road or a parkway may be closed to trucks.
+function worthAWord(route: Route) {
+  return route.unnumbered_miles >= Math.max(10, route.distance_miles * 0.05)
 }
 
 function RiskBar({ miles, total }: { miles: number[]; total: number }) {
