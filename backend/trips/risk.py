@@ -58,6 +58,7 @@ class Assessment:
     rain: int
     snow: int
     load_rule: str | None  # set when the load pushed the wind level up
+    readings: tuple  # (wind mph, rain in/h, snow in/h) as judged, see read()
 
 
 def read(wind_mph, rain_inches_per_hour, snow_inches_per_hour):
@@ -78,4 +79,4 @@ def assess(wind_mph, rain_inches_per_hour, snow_inches_per_hour, load_lb):
         load_rule = f"35-44 mph wind with a load over {VERY_HEAVY_LOAD_LB:,} lb"
     rain = rain_level(rain_inches_per_hour)
     snow = snow_level(snow_inches_per_hour)
-    return Assessment(max(wind, rain, snow), wind, rain, snow, load_rule)
+    return Assessment(max(wind, rain, snow), wind, rain, snow, load_rule, (wind_mph, rain_inches_per_hour, snow_inches_per_hour))

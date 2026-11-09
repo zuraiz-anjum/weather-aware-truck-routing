@@ -97,7 +97,10 @@ has at most a hundred checkpoints. The time of arrival at each comes from
 OSRM's per-step driving times, interpolated by distance within a step and
 nudged so the last vertex lands on the route's own time, added to the
 departure. Each checkpoint stands for the stretch of road from it to the
-next, which is how a level becomes miles.
+next, which is how a level becomes miles. The destination has no road
+after it, but the truck arrives into its weather, so when its reading is
+worse than the final stretch's own the stretch takes it: a route arriving
+into No Travel conditions is not clear to drive.
 
 **Weather.** Open-Meteo gives hourly wind at 10 m in mph and rain and snow
 in inches for the hour, for many points in one request; the app asks for a

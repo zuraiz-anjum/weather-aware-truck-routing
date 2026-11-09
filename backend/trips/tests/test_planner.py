@@ -92,6 +92,23 @@ class PlanTests(CacheTestCase):
         self.assertIn("No route is clear to drive", result["warning"])
         self.assertIn("Route A is the least bad and still has 200 miles rated No Travel", result["warning"])
 
+    def test_arriving_into_no_travel_conditions_counts_against_the_final_stretch(self):
+        # The destination covers no road of its own, but the truck arrives
+        # into its weather: 60 mph wind over the last few miles blocks every route.
+        windy, calm = fake_forecast(lambda lat: 60.0), fake_forecast()
+
+        def forecast(points, start, end):
+            return [(windy if lon > -96.55 else calm)([(lat, lon)], start, end)[0] for lat, lon in points]
+
+        self.forecast.side_effect = forecast
+        result = plan(ORIGIN, DESTINATION, self.departure, 20_000)
+        best = result["routes"][0]
+        self.assertEqual([c["level"] for c in best["checkpoints"][-2:]], [LOW, NO_TRAVEL])
+        self.assertEqual(best["summary"]["miles_by_level"][NO_TRAVEL], best["checkpoints"][-2]["covers_miles"])
+        self.assertEqual(best["summary"]["worst_level"], NO_TRAVEL)
+        self.assertFalse(best["summary"]["recommended"])
+        self.assertIn("still has 10 miles rated No Travel", result["warning"])  # checkpoints every ten miles on a 200-mile trip
+
     def test_the_slow_calm_road_wins_when_the_quick_one_is_windy(self):
         self.forecast.side_effect = fake_forecast(lambda lat: 40.0 if lat < 35.2 and lat > 34.8 else 5.0)
         result = plan(ORIGIN, DESTINATION, self.departure, 20_000)
@@ -217,7 +234,8 @@ class ReasonTests(CacheTestCase):
         self.assertEqual(reason(quickest, quickest, "A"), "the quickest route, and no other scores better on weather")
         self.assertEqual(reason((0, 0, 0, 0.1, 4500), quickest, "B"), "15 min slower than Route B, but fewer miles rated Severe")
         self.assertEqual(reason((0, 20, 0, 0.2, 9000), quickest, "C"), "1.5 h slower than Route C, but a lower average risk")
-        self.assertEqual(reason((0, 0, 0, 0, 3600), (50, 0, 0, 0, 3600), "A"), "0 min slower than Route A, but fewer miles rated No Travel")
+        self.assertEqual(reason((0, 0, 0, 0, 3600), (50, 0, 0, 0, 3600), "A"), "as quick as Route A, and fewer miles rated No Travel")
+        self.assertEqual(reason((0, 0, 0, 0, 3620), (50, 0, 0, 0, 3600), "A"), "as quick as Route A, and fewer miles rated No Travel")
 
 
 class DescribeTests(CacheTestCase):

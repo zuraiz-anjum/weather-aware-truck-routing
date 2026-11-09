@@ -146,16 +146,25 @@ def find_routes(origin, destination):
 
 def judge(route, stops, hourlies, departure, load_lb):
     """Every checkpoint of one route assessed, with the figures the recommendation is made on."""
-    miles_by_level = [0.0] * len(risk.NAMES)
-    weighted = 0.0
-    out = []
+    readings = []
     for stop, hourly in zip(stops, hourlies):
         seconds = round(stop.seconds)
         eta = departure + timedelta(seconds=seconds)
-        wind, rain, snow = risk.read(*hourly.at(eta))
-        found = risk.assess(wind, rain, snow, load_lb)
-        miles_by_level[found.level] += stop.covers_miles
-        weighted += found.level * stop.covers_miles
+        readings.append((stop, eta, seconds, risk.assess(*hourly.at(eta), load_lb)))
+    miles_by_level = [0.0] * len(risk.NAMES)
+    weighted = 0.0
+    out = []
+    for k, (stop, eta, seconds, found) in enumerate(readings):
+        # A checkpoint stands for the road after it. The destination has no
+        # road after it, but the truck arrives into its weather, so when that
+        # reading is worse than the final stretch's own the stretch takes it:
+        # a route arriving into No Travel conditions is not clear to drive.
+        charged = found.level
+        if k == len(readings) - 2:
+            charged = max(charged, readings[-1][3].level)
+        miles_by_level[charged] += stop.covers_miles
+        weighted += charged * stop.covers_miles
+        wind, rain, snow = found.readings
         out.append({
             "mile": round(stop.mile, 1),
             "lat": round(stop.lat, 5),
@@ -196,9 +205,11 @@ def reason(best, quickest, quickest_id):
     if best == quickest:
         return "the quickest route, and no other scores better on weather"
     behind = (best[-1] - quickest[-1]) / 60
-    gap = "%d min" % round(behind) if behind < 90 else "%.1f h" % (behind / 60)
     # Ranked above the quickest route, it beats it on some count before time.
     criterion = next(c for mine, theirs, c in zip(best, quickest, CRITERIA) if mine < theirs)
+    if round(behind) == 0:
+        return f"as quick as Route {quickest_id}, and {criterion}"
+    gap = "%d min" % round(behind) if behind < 90 else "%.1f h" % (behind / 60)
     return f"{gap} slower than Route {quickest_id}, but {criterion}"
 
 
