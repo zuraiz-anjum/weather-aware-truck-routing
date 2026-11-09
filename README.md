@@ -6,12 +6,12 @@ with three road routes, the weather each one meets at the hour the truck
 gets there, a risk level for every stretch, a recommendation, and a heatmap
 of the corridor that can be slid through the next forty-eight hours.
 
-The hosted copy runs as one free Render service deployed from this
-repository, as described at the end; its address is the website shown in
-the repository's About box on GitHub. The first request after a quiet
-spell takes half a minute while the service wakes. Everything is in this
-repository: `backend/` is the Django project, `frontend/` the React app,
-and the `Dockerfile` builds both into one image.
+The hosted copy is a free Docker Space on Hugging Face, deployed from this
+repository by its CI, as described at the end; its address is the website
+shown in the repository's About box on GitHub. After a long quiet spell
+the first request takes a minute while the Space wakes. Everything is in
+this repository: `backend/` is the Django project, `frontend/` the React
+app, and the `Dockerfile` builds both into one image.
 
 ## Running it on your own machine
 
@@ -254,13 +254,25 @@ hour or the day is spent, and 429 past 20 plans a minute from one address
 
 ## Deploying
 
-`render.yaml` describes one free Docker web service on Render: connect the
-repository as a Blueprint and it builds from the `Dockerfile`, generates
-`DJANGO_SECRET_KEY`, and checks `/api/health/`. Free services sleep after
-fifteen idle minutes; the `keep-warm` workflow in `.github/workflows` pings
-the service every ten minutes once the repository variable `APP_URL` is set
-to its address. Set the repository's website on GitHub to the same address,
-since that is where the top of this file sends people.
+The hosted copy is a Docker Space on Hugging Face, which builds the
+`Dockerfile` on a free CPU. CI deploys it: once the suites and the image
+have passed on `main`, the `space` job pushes the tree to the Space's own
+git, with the short README in `.github/space/` that carries the Space's
+settings in its front matter. To turn that on, set the repository secret
+`HF_TOKEN` to a write token and the variable `HF_SPACE` to `user/space`;
+the Space itself needs `DJANGO_SECRET_KEY` as a secret and `PORT=7860`,
+`DJANGO_ALLOWED_HOSTS=.hf.space` and `NUM_PROXIES=1` as variables, set once
+in its settings. A free Space sleeps after two idle days; the `keep-warm`
+workflow in `.github/workflows` pings the service every ten minutes once
+the repository variable `APP_URL` is set to its address. Set the
+repository's website on GitHub to the same address, since that is where
+the top of this file sends people.
+
+`render.yaml` describes the same service for Render, for anyone who would
+rather host it there: connect the repository as a Blueprint and it builds
+from the `Dockerfile`, generates `DJANGO_SECRET_KEY`, and checks
+`/api/health/`. Render's free plan sleeps a service after fifteen idle
+minutes, which the same `keep-warm` workflow covers.
 
 Outside `manage.py` the settings are production's unless `DJANGO_DEBUG=1`
 is set: debugging off, a secret key required, HTTPS taken from the
@@ -328,5 +340,5 @@ frontend/src/
                      HourSlider, Legend, RouteMap (MapLibre)
   api.ts, types.ts, risk.ts, time.ts, progress.ts
 frontend/e2e/        the built app in a browser
-Dockerfile, render.yaml, .github/workflows/
+Dockerfile, render.yaml, .github/   workflows, and the Space's own README
 ```
