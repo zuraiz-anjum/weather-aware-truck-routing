@@ -519,7 +519,9 @@ button.link {
     gap: 6px;
   }
 
+  /* Stacked, the slider's flex basis would become its height. */
   .hour-slider {
+    flex: none;
     padding: 6px 10px;
   }
 

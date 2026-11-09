@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import type { RefObject } from 'react'
 import { LngLatBounds, Map as MapLibre, Marker, NavigationControl, Popup } from 'maplibre-gl'
 import type { ExpressionSpecification, GeoJSONSource, MapGeoJSONFeature, MapMouseEvent } from 'maplibre-gl'
 import type { Feature, FeatureCollection, LineString, Point } from 'geojson'
@@ -18,6 +19,7 @@ interface Props {
   selected: string | null
   hour: number
   onSelect: (id: string) => void
+  overlay?: RefObject<HTMLElement | null> // whatever the app lays over the bottom of the map
 }
 
 const EMPTY: FeatureCollection = { type: 'FeatureCollection', features: [] }
@@ -168,7 +170,7 @@ function endElement(label: string): HTMLElement {
   return element
 }
 
-export default function RouteMap({ plan, selected, hour, onSelect }: Props) {
+export default function RouteMap({ plan, selected, hour, onSelect, overlay }: Props) {
   const container = useRef<HTMLDivElement>(null)
   const map = useRef<MapLibre | null>(null)
   const trucks = useRef<globalThis.Map<string, Marker>>(new globalThis.Map())
@@ -257,8 +259,10 @@ export default function RouteMap({ plan, selected, hour, onSelect }: Props) {
       new Marker({ element: endElement(plan.origin.label), anchor: 'bottom', offset: [0, -4] }).setLngLat([plan.origin.lon, plan.origin.lat]).addTo(instance),
       new Marker({ element: endElement(plan.destination.label), anchor: 'bottom', offset: [0, -4] }).setLngLat([plan.destination.lon, plan.destination.lat]).addTo(instance),
     ]
-    instance.fitBounds(bounds(plan), { padding: { top: 48, right: 48, bottom: 120, left: 48 }, duration: 700, maxZoom: 11 })
-  }, [plan, ready])
+    // The routes are fitted clear of the slider and legend, whatever height they take on this screen.
+    const covered = overlay?.current ? container.current!.clientHeight - overlay.current.offsetTop : 0
+    instance.fitBounds(bounds(plan), { padding: { top: 48, right: 48, bottom: covered + 40, left: 48 }, duration: 700, maxZoom: 11 })
+  }, [plan, ready, overlay])
 
   // The chosen route is drawn bold with its checkpoints; the others stay in the background.
   useEffect(() => {

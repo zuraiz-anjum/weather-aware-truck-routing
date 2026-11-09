@@ -17,6 +17,7 @@ export default function App() {
   const [selected, setSelected] = useState<string | null>(null)
   const [hour, setHour] = useState(0)
   const pending = useRef<AbortController | null>(null)
+  const overlay = useRef<HTMLDivElement>(null)
 
   const submit = useCallback(async (request: PlanRequest) => {
     pending.current?.abort()
@@ -80,10 +81,10 @@ export default function App() {
       </aside>
       <main className={stale ? 'map-area stale' : 'map-area'}>
         <Suspense fallback={<div className="map map-loading muted">Loading the map&hellip;</div>}>
-          <RouteMap plan={plan} selected={route?.id ?? null} hour={hour} onSelect={setSelected} />
+          <RouteMap plan={plan} selected={route?.id ?? null} hour={hour} onSelect={setSelected} overlay={overlay} />
         </Suspense>
         {plan && (
-          <div className="map-controls">
+          <div className="map-controls" ref={overlay}>
             <HourSlider plan={plan} hour={hour} onChange={setHour} />
             <Legend cellMiles={plan.heatmap.cell_miles} />
           </div>
