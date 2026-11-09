@@ -45,9 +45,11 @@ INSTALLED_APPS = [
 MIDDLEWARE = [
     "django.middleware.gzip.GZipMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    # WhiteNoise answers for the React page itself without going further
+    # down the stack, so the frame header has to be put on above it.
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.middleware.common.CommonMiddleware",
-    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
 ROOT_URLCONF = "truckweather.urls"
@@ -83,6 +85,8 @@ STORAGES = {
 WHITENOISE_ROOT = FRONTEND_DIST
 WHITENOISE_INDEX_FILE = True
 WHITENOISE_IMMUTABLE_FILE_TEST = lambda path, url: "/assets/" in url
+# The page names the current bundles, so it is not held at all; the bundles keep their ten years.
+WHITENOISE_MAX_AGE = 0
 WHITENOISE_AUTOREFRESH = WHITENOISE_USE_FINDERS = DEBUG
 
 # Geocoding, routes and forecasts are cached so that moving the departure
@@ -130,6 +134,10 @@ OPEN_METEO_URL = os.environ.get("OPEN_METEO_URL", "https://api.open-meteo.com")
 OPEN_METEO_API_KEY = os.environ.get("OPEN_METEO_API_KEY", "")
 if OPEN_METEO_API_KEY and "OPEN_METEO_URL" not in os.environ:
     OPEN_METEO_URL = "https://customer-api.open-meteo.com"
+# When the allowance here is spent for the hour or the day the browser is
+# asked to fetch the forecast from its own address, and this is where it is
+# sent: the public service, whatever this server itself talks to.
+OPEN_METEO_PUBLIC_URL = os.environ.get("OPEN_METEO_PUBLIC_URL", "https://api.open-meteo.com")
 PHOTON_URL = os.environ.get("PHOTON_URL", "https://photon.komoot.io")
 USER_AGENT = "weather-aware-truck-routing/1.0 (zuraizwork@gmail.com)"
 # Connect and read. A coast-to-coast route with every step takes a few

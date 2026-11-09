@@ -1,14 +1,19 @@
 import logging
+import unittest
 from datetime import datetime, timedelta, timezone
 from unittest import mock
+
+from django.conf import settings
+from django.test import override_settings
 
 from trips.geocoding import GeocodingError, Place, PlaceNotFound
 from trips.osrm import Found, NoRoute, RoutingError
 from trips.views import PlanThrottle
-from trips.weather import WeatherBusy, WeatherError
+from trips.weather import WeatherError
 
 from .support import CacheTestCase, fake_forecast, fake_route
 from .test_geometry import east_west_line
+from .test_planner import fetched_by_browser, spent
 
 
 def soon(hours=2):
@@ -17,7 +22,7 @@ def soon(hours=2):
 
 # The bad requests and failing services these tests arrange on purpose are
 # not worth a log line each in the test output.
-QUIET = (("django.request", logging.CRITICAL), ("trips.views", logging.ERROR))
+QUIET = (("django.request", logging.CRITICAL), ("trips.views", logging.ERROR), ("trips.planner", logging.WARNING))
 _levels = {}
 
 
@@ -134,11 +139,92 @@ class PlanViewTests(CacheTestCase):
                 self.assertEqual(response.json(), {"detail": str(error)})
 
     def test_a_busy_weather_service_is_503_with_a_retry_hint(self):
-        with mock.patch("trips.weather.forecast", side_effect=WeatherBusy("try again in an hour", 3600)):
+        with mock.patch("trips.weather.forecast", side_effect=spent("minutely")):
             response = self.post()
         self.assertEqual(response.status_code, 503)
-        self.assertEqual(response["Retry-After"], "3600")
-        self.assertEqual(response.json(), {"detail": "try again in an hour"})
+        self.assertEqual(response["Retry-After"], "60")
+        # The minute is waited out by the page; nothing is asked of the browser.
+        self.assertEqual(response.json(), {"detail": "the weather service's free allowance for the minute is spent; try again in a minute"})
+
+    @override_settings(OPEN_METEO_PUBLIC_URL="http://public.meteo.test", OPEN_METEO_API_KEY="secret")
+    def test_a_spent_hour_or_day_is_503_with_what_the_browser_needs_to_fetch_the_forecast_itself(self):
+        for allowance, span in (("daily", "the day"), ("hourly", "the hour")):
+            with self.subTest(allowance=allowance), mock.patch("trips.weather.forecast", side_effect=spent(allowance)) as forecast:
+                response = self.post()
+                self.assertEqual(response.status_code, 503)
+                self.assertEqual(response["Retry-After"], str(forecast.side_effect.retry_after))
+                body = response.json()
+                self.assertIn("free allowance for %s is spent" % span, body["detail"])
+                offer = body["forecast"]
+                (points, start, end), _ = forecast.call_args
+                self.assertEqual(offer["url"], "http://public.meteo.test/v1/forecast")
+                self.assertEqual(offer["points"], [[lat, lon] for lat, lon in points])
+                self.assertTrue(all(round(c, 4) == c for p in offer["points"] for c in p))
+                self.assertEqual(offer["params"]["hourly"], "wind_speed_10m,rain,showers,snowfall")
+                self.assertEqual(offer["params"]["timeformat"], "unixtime")
+                self.assertEqual(offer["params"]["start_hour"], soon().strftime("%Y-%m-%dT00:00"))
+                self.assertGreater(offer["params"]["end_hour"], offer["params"]["start_hour"])
+                for key in ("apikey", "latitude", "longitude"):
+                    self.assertNotIn(key, offer["params"])
+
+    def test_the_forecast_the_browser_fetched_is_used_when_it_is_for_the_points_asked_for(self):
+        with mock.patch("trips.weather.forecast", side_effect=spent()) as forecast:
+            offer = self.post().json()["forecast"]
+            (points, start, end), _ = forecast.call_args
+            sent = {"points": offer["points"], "hourly": fetched_by_browser(points, start, end, lambda lat: 10.0)}
+            response = self.post(forecast=sent)
+            self.assertEqual(forecast.call_count, 1)
+        self.assertEqual(response.status_code, 200, response.content)
+        plan = response.json()
+        self.assertEqual([r["id"] for r in plan["routes"]], ["A", "B", "C"])
+        self.assertTrue(plan["routes"][0]["summary"]["recommended"])
+        self.assertEqual(plan["routes"][0]["checkpoints"][0]["wind_mph"], 10.0)
+        self.assertEqual(plan["heatmap"]["type"], "FeatureCollection")
+
+    def test_a_forecast_of_the_wrong_shape_is_refused_before_anything_is_planned(self):
+        (series,) = fetched_by_browser([(35.0, -100.0)], soon(), soon(50), lambda lat: 10.0)
+        good = {"points": [[35.0, -100.0]], "hourly": [series]}
+        cases = [
+            (None, "forecast: This field may not be null"),
+            ([], "forecast: Expected a dictionary of items"),
+            ({"points": good["points"]}, "forecast: give points and hourly, each a list"),
+            ({**good, "points": [[35.0, -100.0], [36.0, -100.0]]}, "forecast: give one hourly series per point"),
+            ({**good, "points": [[35.0]]}, "forecast: point 0 is not [lat, lon] in North America"),
+            ({**good, "points": [[48.85, 2.35]]}, "forecast: point 0 is not [lat, lon] in North America"),
+            ({**good, "points": [["35.0", "-100.0"]]}, "forecast: point 0 is not [lat, lon] in North America"),
+            ({**good, "hourly": [{k: v for k, v in series.items() if k != "showers"}]}, "forecast: hourly series 0 is not Open-Meteo's hourly member"),
+            ({**good, "hourly": [{**series, "gusts": series["rain"]}]}, "forecast: hourly series 0 is not Open-Meteo's hourly member"),
+            ({**good, "hourly": [{**series, "rain": series["rain"][:-1]}]}, "forecast: the columns of hourly series 0 are not lists of one length"),
+            ({**good, "hourly": [{**series, "rain": "wet"}]}, "forecast: the columns of hourly series 0 are not lists of one length"),
+            ({**good, "hourly": [{**series, "rain": ["wet"] + series["rain"][1:]}]}, "forecast: hourly series 0 has a value that is not a number or null"),
+            ({**good, "hourly": [{**series, "rain": [True] + series["rain"][1:]}]}, "forecast: hourly series 0 has a value that is not a number or null"),
+            ({**good, "hourly": [{k: v * 11 for k, v in series.items()}]}, "forecast: hourly series 0 runs longer than the forecast does"),
+            ({"points": good["points"] * 401, "hourly": good["hourly"] * 401}, "forecast: more than 400 points"),
+        ]
+        with mock.patch("trips.osrm.find") as find:
+            for forecast, message in cases:
+                with self.subTest(message=message):
+                    response = self.post(forecast=forecast)
+                    self.assertEqual(response.status_code, 400, response.content)
+                    self.assertIn(message, response.json()["detail"])
+                    self.assertIn("forecast", response.json()["errors"])
+            find.assert_not_called()
+
+    def test_unusable_readings_from_the_browser_are_refused_as_a_bad_request(self):
+        with mock.patch("trips.weather.forecast", side_effect=spent()) as forecast:
+            offer = self.post().json()["forecast"]
+            (points, start, end), _ = forecast.call_args
+            hourly = fetched_by_browser(points, start, end, lambda lat: 10.0)
+            hourly[3]["wind_speed_10m"][5] = None
+            response = self.post(forecast={"points": offer["points"], "hourly": hourly})
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json(), {"detail": "the supplied forecast has no value for part of this trip"})
+            # A series that stops short of the trip is no better.
+            hourly = fetched_by_browser(points, start, end, lambda lat: 10.0)
+            hourly[0] = {name: column[:-5] for name, column in hourly[0].items()}
+            response = self.post(forecast={"points": offer["points"], "hourly": hourly})
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.json(), {"detail": "the supplied forecast does not cover the whole trip"})
 
     def test_get_is_not_allowed_but_renders_in_a_browser(self):
         response = self.client.get("/api/plan/", HTTP_ACCEPT="text/html")
@@ -177,3 +263,29 @@ class HealthTests(CacheTestCase):
         self.assertEqual(page.status_code, 200)
         self.assertIn(b"<title>Health", page.content)
         self.assertIn(b"&quot;status&quot;: &quot;ok&quot;", page.content)
+
+
+class PageTests(CacheTestCase):
+    @unittest.skipUnless((settings.FRONTEND_DIST / "index.html").exists(), "the React app is not built (npm run build in frontend/)")
+    def test_the_page_may_not_be_framed_and_is_not_held_by_the_browser(self):
+        response = self.client.get("/")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'<div id="root"', b"".join(response.streaming_content))
+        # WhiteNoise answers for the page itself, so the header has to be put on above it.
+        self.assertEqual(response["X-Frame-Options"], "DENY")
+        # The page names the bundles of the moment; a held copy would name a deploy's old ones.
+        self.assertEqual(response["Cache-Control"], "max-age=0, public")
+
+
+class NotFoundTests(CacheTestCase):
+    def test_a_missing_api_path_answers_in_json_like_the_rest_of_the_api(self):
+        response = self.client.get("/api/nothing/")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json(), {"detail": "not found"})
+        self.assertEqual(response["X-Frame-Options"], "DENY")
+
+    def test_anything_else_missing_gets_the_usual_page(self):
+        response = self.client.get("/nothing/")
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(response["Content-Type"].startswith("text/html"))
+        self.assertIn(b"Not Found", response.content)

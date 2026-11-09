@@ -1,5 +1,7 @@
 import logging
 
+from django.http import JsonResponse
+from django.views.defaults import page_not_found
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle
@@ -30,6 +32,7 @@ class PlanView(APIView):
             data["departure"],
             data["load_lb"],
             data.get("interval_miles"),
+            data.get("forecast"),
         )
         return Response(result)
 
@@ -56,6 +59,13 @@ class HealthView(APIView):
         return Response({"status": "ok"})
 
 
+def not_found(request, exception=None):
+    """A path nothing answers for: under /api/ in JSON like every other API error, elsewhere Django's own page."""
+    if request.path_info.startswith("/api/"):
+        return JsonResponse({"detail": "not found"}, status=404)
+    return page_not_found(request, exception)
+
+
 UNPLANNABLE = (osrm.NoRoute, geocoding.PlaceNotFound, planner.PlanningError)
 UPSTREAM = (osrm.RoutingError, weather.WeatherError, geocoding.GeocodingError)
 
@@ -66,6 +76,13 @@ def exception_handler(exc, context):
         return Response({"detail": str(exc)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
     if isinstance(exc, weather.WeatherBusy):
         return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE, headers={"Retry-After": str(exc.retry_after)})
+    if isinstance(exc, planner.NeedsForecast):
+        # The same 503 and wait for a client content to wait; one that can
+        # fetch the forecast itself finds what it needs under "forecast".
+        return Response({"detail": str(exc), "forecast": exc.offer},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE, headers={"Retry-After": str(exc.retry_after)})
+    if isinstance(exc, weather.BadForecast):
+        return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
     if isinstance(exc, UPSTREAM):
         log.warning("upstream failure: %s", exc, exc_info=exc.__cause__)
         return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)

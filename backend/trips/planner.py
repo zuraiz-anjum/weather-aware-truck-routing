@@ -9,12 +9,15 @@ plan, in one go for the checkpoints of all the routes and the cells of the
 heatmap, and the risk rules are applied to both.
 """
 
+import logging
 from datetime import timedelta
 
 from django.core.cache import cache
 
 from . import checkpoints, corridor, osrm, risk, weather
 from .geometry import haversine_miles
+
+log = logging.getLogger(__name__)
 
 SLIDER_HOURS = 48
 ROUTES_CACHE_SECONDS = 24 * 3600
@@ -39,8 +42,25 @@ class PlanningError(Exception):
     """The request is sound but no plan can be made of it."""
 
 
-def plan(origin, destination, departure, load_lb, interval=None):
-    """The plan for a trip from origin to destination (geocoding.Place), leaving at departure (aware)."""
+class NeedsForecast(Exception):
+    """The forecast cannot be fetched from here for an hour or a day; the browser is asked to fetch it and send it back.
+
+    `offer` is what the browser needs (weather.offer) and `retry_after` how
+    long the allowance takes to come back, for a client that would rather wait.
+    """
+
+    def __init__(self, message, offer, retry_after):
+        super().__init__(message)
+        self.offer = offer
+        self.retry_after = retry_after
+
+
+def plan(origin, destination, departure, load_lb, interval=None, forecast=None):
+    """The plan for a trip from origin to destination (geocoding.Place), leaving at departure (aware).
+
+    `forecast` is what a browser fetched after being asked to (NeedsForecast):
+    {"points": [[lat, lon], ...], "hourly": [Open-Meteo's hourly member for each]}.
+    """
     departure = departure.replace(microsecond=0)
     if haversine_miles(origin.lat, origin.lon, destination.lat, destination.lon) < SAME_PLACE_MILES:
         raise PlanningError("the origin and the destination are the same place")
@@ -75,7 +95,7 @@ def plan(origin, destination, departure, load_lb, interval=None):
     wanted = [(c.lat, c.lon) for route_stops in stops for c in route_stops] + [cell.point for cell in band.cells]
     index = {}
     slots = [index.setdefault((round(lat, 4), round(lon, 4)), len(index)) for lat, lon in wanted]
-    fetched = weather.forecast(list(index), departure, end)
+    fetched = readings(list(index), departure, end, forecast)
     hourlies = [fetched[slot] for slot in slots]
     taken = 0
     judged = []
@@ -144,6 +164,30 @@ def find_routes(origin, destination):
         found = osrm.find(origin, destination)
         cache.set(key, found, SHORT_CACHE_SECONDS if found.missed else ROUTES_CACHE_SECONDS)
     return found
+
+
+def readings(points, start, end, forecast=None):
+    """One Hourly per point: the browser's when it fetched for these very points, otherwise Open-Meteo's.
+
+    The browser's are taken only for the exact list this plan came to. If
+    the routes have changed since it was asked, the points differ, what it
+    sent is ignored, and the forecast is fetched here as if nothing had been
+    sent; should that meet the same spent allowance, the browser is asked
+    again for the new points.
+    """
+    if forecast is not None and [(round(lat, 4), round(lon, 4)) for lat, lon in forecast["points"]] == points:
+        return weather.supplied(forecast["hourly"], start, end)
+    try:
+        return weather.forecast(points, start, end)
+    except weather.WeatherBusy as exc:
+        # The minute's allowance is back before a browser could be asked
+        # and answer, so the page waits it out as before. The hour's and
+        # the day's are spent at this address, often by whoever else shares
+        # it, and the browser's own address has an allowance of its own.
+        if exc.allowance == "minutely":
+            raise
+        log.info("the weather service's allowance here is spent for %d s; asking the browser to fetch %d points", exc.retry_after, len(points))
+        raise NeedsForecast(str(exc), weather.offer(points, start, end), exc.retry_after) from exc
 
 
 def judge(route, stops, hourlies, departure, load_lb):

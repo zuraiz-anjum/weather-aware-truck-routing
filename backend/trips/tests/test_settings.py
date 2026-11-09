@@ -53,6 +53,18 @@ class SettingsTests(SimpleTestCase):
         self.assertEqual(own.OPEN_METEO_URL, "http://meteo.internal")
         self.assertEqual(settings_under(DJANGO_DEBUG="1").OPEN_METEO_API_KEY, "")
 
+    def test_the_browser_is_sent_to_the_public_service_whatever_the_server_uses(self):
+        own = settings_under(DJANGO_DEBUG="1", OPEN_METEO_API_KEY="abc", OPEN_METEO_URL="http://meteo.internal")
+        self.assertEqual(own.OPEN_METEO_PUBLIC_URL, "https://api.open-meteo.com")
+        mirror = settings_under(DJANGO_DEBUG="1", OPEN_METEO_PUBLIC_URL="http://mirror.example")
+        self.assertEqual(mirror.OPEN_METEO_PUBLIC_URL, "http://mirror.example")
+
+    def test_the_frame_header_goes_on_before_whitenoise_answers_for_the_page(self):
+        development = settings_under(DJANGO_DEBUG="1")
+        self.assertLess(development.MIDDLEWARE.index("django.middleware.clickjacking.XFrameOptionsMiddleware"),
+                        development.MIDDLEWARE.index("whitenoise.middleware.WhiteNoiseMiddleware"))
+        self.assertEqual(development.WHITENOISE_MAX_AGE, 0)
+
     def test_the_command_line_runs_with_nothing_set(self):
         # manage.py is the development entry point, so it turns debugging on itself.
         environment = {name: value for name, value in os.environ.items() if not name.startswith("DJANGO_")}

@@ -78,4 +78,3 @@ jobs:
           exit 1
       - name: The front page is served by the same container
         run: curl -fsS http://localhost:8000/ | grep -q '<div id="root">'
-

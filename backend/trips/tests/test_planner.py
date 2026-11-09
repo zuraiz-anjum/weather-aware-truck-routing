@@ -3,11 +3,12 @@ from unittest import mock
 
 from django.core.cache import cache
 
-from trips import planner
+from trips import planner, weather
 from trips.geocoding import Place
 from trips.osrm import Found, NoRoute
-from trips.planner import PlanningError, describe, plan, reason
+from trips.planner import NeedsForecast, PlanningError, describe, plan, reason
 from trips.risk import HIGH, LOW, MODERATE, NO_TRAVEL, SEVERE
+from trips.weather import WeatherBusy
 
 from .support import CacheTestCase, fake_forecast, fake_route
 from .test_geometry import east_west_line
@@ -28,6 +29,19 @@ def three_routes():
 
 def windy_north(lat):
     return 50.0 if lat > 35.2 else 10.0
+
+
+def spent(allowance="daily"):
+    """What weather.forecast raises when Open-Meteo says the named allowance is gone."""
+    return weather.busy("%s API request limit exceeded" % allowance.capitalize())
+
+
+def fetched_by_browser(points, start, end, wind_by_lat=windy_north):
+    """Open-Meteo's hourly member for each point, as a browser asked to fetch them sends them back."""
+    return [
+        {"time": h.times, "wind_speed_10m": h.wind, "rain": h.rain, "showers": [0.0] * len(h.times), "snowfall": h.snow}
+        for h in fake_forecast(wind_by_lat)(points, start, end)
+    ]
 
 
 class PlanTests(CacheTestCase):
@@ -250,6 +264,67 @@ class PlanTests(CacheTestCase):
         self.assertEqual(result["slider_hours"], 48)
         self.assertEqual(result["routes"][0]["geometry"]["type"], "LineString")
         self.assertEqual(result["routes"][0]["geometry"]["coordinates"][0], [-100.0, 35.0])
+
+    def test_a_spent_hour_or_day_asks_the_browser_to_fetch_the_forecast_itself(self):
+        for allowance in ("daily", "hourly"):
+            with self.subTest(allowance=allowance):
+                self.forecast.side_effect = spent(allowance)
+                with self.assertLogs("trips.planner", "INFO") as logged, self.assertRaises(NeedsForecast) as caught:
+                    plan(ORIGIN, DESTINATION, self.departure, 20_000)
+                asked = caught.exception
+                (points, start, end), _ = self.forecast.call_args
+                self.assertEqual(asked.offer, weather.offer(points, start, end))
+                self.assertEqual(asked.offer["points"], [[lat, lon] for lat, lon in points])
+                self.assertEqual(len(asked.offer["points"]), len(set(points)))
+                params = asked.offer["params"]
+                self.assertEqual(params["start_hour"], self.departure.strftime("%Y-%m-%dT00:00"))
+                self.assertEqual(params["end_hour"], weather.window(start, end)[1].strftime("%Y-%m-%dT%H:%M"))
+                self.assertNotIn("apikey", params)
+                self.assertEqual(asked.retry_after, self.forecast.side_effect.retry_after)
+                self.assertIn("is spent", str(asked))
+                self.assertEqual(len(logged.records), 1)
+                self.assertIn("asking the browser", logged.output[0])
+
+    def test_the_browsers_forecast_for_the_points_asked_for_makes_the_plan_a_fetch_would(self):
+        self.forecast.side_effect = spent()
+        with self.assertLogs("trips.planner", "INFO"), self.assertRaises(NeedsForecast) as caught:
+            plan(ORIGIN, DESTINATION, self.departure, 20_000)
+        (points, start, end), _ = self.forecast.call_args
+        sent = {"points": caught.exception.offer["points"], "hourly": fetched_by_browser(points, start, end)}
+        with mock.patch.object(cache, "set", wraps=cache.set) as set_:
+            result = plan(ORIGIN, DESTINATION, self.departure, 20_000, forecast=sent)
+        self.assertEqual(self.forecast.call_count, 1)
+        self.forecast.side_effect = fake_forecast(windy_north)
+        expected = plan(ORIGIN, DESTINATION, self.departure, 20_000)
+        self.assertEqual([r["checkpoints"] for r in result["routes"]], [r["checkpoints"] for r in expected["routes"]])
+        self.assertEqual([r["summary"] for r in result["routes"]], [r["summary"] for r in expected["routes"]])
+        self.assertEqual(result["heatmap"], expected["heatmap"])
+        # What a browser sends is its own affair; nothing of it is kept for the next plan.
+        self.assertFalse([c for c in set_.call_args_list if c.args[0].startswith("forecast")])
+
+    def test_a_forecast_for_other_points_is_passed_over_and_the_service_asked(self):
+        self.forecast.side_effect = spent()
+        with self.assertLogs("trips.planner", "INFO"), self.assertRaises(NeedsForecast) as caught:
+            plan(ORIGIN, DESTINATION, self.departure, 20_000)
+        offered = caught.exception.offer["points"]
+        (points, start, end), _ = self.forecast.call_args
+        # The routes changed since the browser was asked, say: its points are not this plan's.
+        stale = {"points": offered[1:], "hourly": fetched_by_browser(points[1:], start, end)}
+        self.forecast.side_effect = fake_forecast(windy_north)
+        result = plan(ORIGIN, DESTINATION, self.departure, 20_000, forecast=stale)
+        self.assertEqual(self.forecast.call_count, 2)
+        self.assertEqual([r["id"] for r in result["routes"]], ["A", "B", "C"])
+        # Should the allowance still be spent, the browser is asked again for the points as they now are.
+        self.forecast.side_effect = spent("hourly")
+        with self.assertLogs("trips.planner", "INFO"), self.assertRaises(NeedsForecast) as caught:
+            plan(ORIGIN, DESTINATION, self.departure, 20_000, forecast=stale)
+        self.assertEqual(caught.exception.offer["points"], offered)
+
+    def test_the_minutes_allowance_is_waited_out_as_before(self):
+        self.forecast.side_effect = spent("minutely")
+        with self.assertNoLogs("trips.planner"), self.assertRaises(WeatherBusy) as caught:
+            plan(ORIGIN, DESTINATION, self.departure, 20_000)
+        self.assertEqual(caught.exception.retry_after, 60)
 
 
 class ReasonTests(CacheTestCase):

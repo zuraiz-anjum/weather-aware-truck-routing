@@ -7,9 +7,15 @@ units the risk rules use: wind in miles an hour at the top of the hour, rain
 and snow in inches fallen over the hour that ends at the time stamp. Rain
 is Open-Meteo's large-scale rain plus its convective showers, since the
 rules are about how hard it is raining, not why.
+
+The free allowance is counted by address. When this address has spent its
+hour's or day's, the browser can be asked to make the same requests from
+its own (see offer) and send the hourly series back, and supplied() reads
+them to the same standard as forecast() does Open-Meteo's own answer.
 """
 
 import hashlib
+import math
 from bisect import bisect_right
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -40,21 +46,39 @@ class WeatherError(Exception):
 
 
 class WeatherBusy(WeatherError):
-    """Open-Meteo's free allowance is spent for the minute, the hour or the day; a later retry will do."""
+    """Open-Meteo's free allowance is spent for the minute, the hour or the day; a later retry will do.
 
-    def __init__(self, message, retry_after):
+    `allowance` says which, in Open-Meteo's own word: "minutely", "hourly"
+    or "daily"; `retry_after` is the seconds until it comes back.
+    """
+
+    def __init__(self, message, retry_after, allowance):
         super().__init__(message)
         self.retry_after = retry_after
+        self.allowance = allowance
 
 
-# Open-Meteo's refusals name the allowance that ran out.
-ALLOWANCES = (("daily", 24 * 3600, "the day", "tomorrow"), ("hourly", 3600, "the hour", "in an hour"), ("minutely", 60, "the minute", "in a minute"))
+# Open-Meteo's refusals name the allowance that ran out. The minute's and
+# the hour's come back after a minute and an hour, the day's at midnight UTC.
+ALLOWANCES = (("daily", "the day", "tomorrow"), ("hourly", "the hour", "in an hour"), ("minutely", "the minute", "in a minute"))
 
 
 def busy(reason):
     *_, shortest = ALLOWANCES
-    word, seconds, span, when = next((a for a in ALLOWANCES if a[0] in reason.lower()), shortest)
-    return WeatherBusy(f"the weather service's free allowance for {span} is spent; try again {when}", seconds)
+    word, span, when = next((a for a in ALLOWANCES if a[0] in reason.lower()), shortest)
+    return WeatherBusy(f"the weather service's free allowance for {span} is spent; try again {when}", wait(word), word)
+
+
+def wait(allowance):
+    """Seconds until the named allowance comes back, never less than a minute."""
+    if allowance == "daily":
+        now = datetime.now(timezone.utc)
+        return max(60, math.ceil((midnight_after(now) - now).total_seconds()))
+    return 3600 if allowance == "hourly" else 60
+
+
+class BadForecast(Exception):
+    """The hourly series a browser sent back are not something a plan can be made from."""
 
 
 @dataclass
@@ -83,19 +107,79 @@ def horizon():
 
 def forecast(points, start, end):
     """One Hourly per point, with every hour a truck between start and end (aware datetimes) could need."""
-    first, last = start.timestamp(), end.timestamp()
-    start = start.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
-    end = min(max(start + MIN_WINDOW, midnight_after(end.astimezone(timezone.utc) + timedelta(hours=1))), horizon())
+    first, last = window(start, end)
     chunks = [points[i : i + POINTS_PER_REQUEST] for i in range(0, len(points), POINTS_PER_REQUEST)]
     with ThreadPoolExecutor(max_workers=PARALLEL_REQUESTS) as pool:
-        answers = list(pool.map(lambda chunk: _fetch(chunk, start, end), chunks))
+        answers = list(pool.map(lambda chunk: _fetch(chunk, first, last), chunks))
     hourlies = [hourly for answer in answers for hourly in answer]
     # The hours that came back may stop short of the window (see _hourly).
-    # Rain and snow at a moment are read from the stamp after it, so the
-    # series has to run past the last moment, not merely up to it.
-    if any(hourly.times[0] > first or hourly.times[-1] <= last for hourly in hourlies):
+    if not _covers(hourlies, start, end):
         raise WeatherError("the weather service has no forecast for part of this trip")
     return hourlies
+
+
+def supplied(series, start, end):
+    """One Hourly per point from the hourly series a browser fetched when asked to (see offer), judged as forecast() judges Open-Meteo's.
+
+    The series are Open-Meteo's own `hourly` members, passed on as they
+    came, so the same reading applies: trailing nulls are hours past the
+    model's reach, a null anywhere else refuses the plan. What a browser
+    sends is never cached; the next plan fetches for itself.
+    """
+    try:
+        hourlies = [_hourly(data) for data in series]
+    except WeatherError as exc:
+        raise BadForecast("the supplied forecast has no value for part of this trip") from exc
+    except (LookupError, TypeError, ValueError) as exc:
+        raise BadForecast("the supplied forecast is not in the shape Open-Meteo sends") from exc
+    if not _covers(hourlies, start, end):
+        raise BadForecast("the supplied forecast does not cover the whole trip")
+    return hourlies
+
+
+def offer(points, start, end):
+    """What a browser needs to fetch the forecast for these points itself: the public address, the query, and the points.
+
+    The address is the public one whatever this server uses, since a
+    self-hosted copy or the customer endpoint is the server's own affair;
+    for the same reason the query carries no key. The browser adds the
+    points a hundred to a request, as _fetch does.
+    """
+    return {
+        "url": f"{settings.OPEN_METEO_PUBLIC_URL}/v1/forecast",
+        "params": query(*window(start, end)),
+        "points": [[round(lat, 4), round(lon, 4)] for lat, lon in points],
+    }
+
+
+def window(start, end):
+    """The hours fetched for a trip between start and end: midnight of the start's day to a midnight at least three days on, inside the horizon."""
+    start = start.astimezone(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    end = min(max(start + MIN_WINDOW, midnight_after(end.astimezone(timezone.utc) + timedelta(hours=1))), horizon())
+    return start, end
+
+
+def query(start, end):
+    """The query of a forecast request for a window, apart from the points and any key; _fetch and offer() both build on it."""
+    return {
+        "hourly": ",".join(VARIABLES),
+        "wind_speed_unit": "mph",
+        "precipitation_unit": "inch",
+        "timezone": "UTC",
+        "timeformat": "unixtime",
+        "start_hour": start.strftime("%Y-%m-%dT%H:%M"),
+        "end_hour": end.strftime("%Y-%m-%dT%H:%M"),
+    }
+
+
+def _covers(hourlies, start, end):
+    """Whether every series is there by `start` and runs past `end`.
+
+    Rain and snow at a moment are read from the stamp after it, so the
+    series has to run past the last moment, not merely up to it.
+    """
+    first, last = start.timestamp(), end.timestamp()
+    return all(hourly.times[0] <= first and hourly.times[-1] > last for hourly in hourlies)
 
 
 def midnight_after(when):
@@ -116,13 +200,7 @@ def _fetch(points, start, end):
             params={
                 "latitude": ",".join("%.4f" % lat for lat, _ in points),
                 "longitude": ",".join("%.4f" % lon for _, lon in points),
-                "hourly": ",".join(VARIABLES),
-                "wind_speed_unit": "mph",
-                "precipitation_unit": "inch",
-                "timezone": "UTC",
-                "timeformat": "unixtime",
-                "start_hour": start.strftime("%Y-%m-%dT%H:%M"),
-                "end_hour": end.strftime("%Y-%m-%dT%H:%M"),
+                **query(start, end),
                 **({"apikey": settings.OPEN_METEO_API_KEY} if settings.OPEN_METEO_API_KEY else {}),
             },
             headers={"User-Agent": settings.USER_AGENT},

@@ -2,10 +2,12 @@ from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 import requests
+from django.core.cache import cache
 from django.test import override_settings
 
 import trips.weather
-from trips.weather import POINTS_PER_REQUEST, Hourly, WeatherBusy, WeatherError, forecast, horizon, midnight_after
+from trips.weather import (POINTS_PER_REQUEST, BadForecast, Hourly, WeatherBusy, WeatherError, busy, forecast, horizon, midnight_after,
+                           offer, query, supplied, window)
 
 from .support import CacheTestCase, FakeResponse
 
@@ -65,6 +67,12 @@ class WindowTests(CacheTestCase):
         today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
         self.assertEqual(horizon(), today + timedelta(days=16) - timedelta(hours=1))
 
+    def test_window_runs_from_midnight_of_the_first_day_to_a_midnight_at_least_three_days_on(self):
+        start = datetime.now(timezone.utc).replace(hour=6, minute=30, second=0, microsecond=0) + timedelta(days=2)
+        midnight = start.replace(hour=0, minute=0)
+        self.assertEqual(window(start, start + timedelta(hours=48)), (midnight, midnight + timedelta(days=3)))
+        self.assertEqual(window(start, start + timedelta(hours=100)), (midnight, midnight + timedelta(days=5)))
+
 
 @override_settings(OPEN_METEO_URL="http://meteo.test")
 class ForecastTests(CacheTestCase):
@@ -95,17 +103,34 @@ class ForecastTests(CacheTestCase):
         # minimum whatever the time of day the test runs at.
         start = self.soon(24).replace(hour=6, minute=0, second=0)
         forecast([(35.0, -100.0), (36.0, -101.0)], start, start + timedelta(hours=48))
-        params = get.call_args[1]["params"]
-        self.assertEqual(params["latitude"], "35.0000,36.0000")
-        self.assertEqual(params["longitude"], "-100.0000,-101.0000")
-        self.assertEqual(params["hourly"], "wind_speed_10m,rain,showers,snowfall")
-        self.assertEqual(params["wind_speed_unit"], "mph")
-        self.assertEqual(params["precipitation_unit"], "inch")
-        self.assertEqual(params["timezone"], "UTC")
         midnight = start.replace(hour=0, minute=0, second=0)
-        self.assertEqual(params["start_hour"], midnight.strftime("%Y-%m-%dT%H:%M"))
-        self.assertEqual(params["end_hour"], (midnight + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M"))
-        self.assertNotIn("past_days", params)
+        # The whole query, so that nothing is added or dropped unnoticed; a
+        # browser asked to fetch for us is given the same one (below).
+        self.assertEqual(get.call_args[1]["params"], {
+            "latitude": "35.0000,36.0000",
+            "longitude": "-100.0000,-101.0000",
+            "hourly": "wind_speed_10m,rain,showers,snowfall",
+            "wind_speed_unit": "mph",
+            "precipitation_unit": "inch",
+            "timezone": "UTC",
+            "timeformat": "unixtime",
+            "start_hour": midnight.strftime("%Y-%m-%dT%H:%M"),
+            "end_hour": (midnight + timedelta(days=3)).strftime("%Y-%m-%dT%H:%M"),
+        })
+
+    @override_settings(OPEN_METEO_API_KEY="secret", OPEN_METEO_PUBLIC_URL="http://public.meteo.test")
+    def test_a_browser_is_offered_the_requests_own_query_less_the_points_and_the_key(self):
+        get = self.answer_the_window_asked_for()
+        start = self.soon(24).replace(hour=6, minute=0, second=0)
+        end = start + timedelta(hours=48)
+        forecast([(35.0, -100.0)], start, end)
+        sent = get.call_args[1]["params"]
+        self.assertEqual(sent["apikey"], "secret")
+        offered = offer([(35.0, -100.0), (36.12346, -101.98764)], start, end)
+        self.assertEqual(offered["url"], "http://public.meteo.test/v1/forecast")
+        self.assertEqual(offered["params"], {k: v for k, v in sent.items() if k not in ("latitude", "longitude", "apikey")})
+        self.assertEqual(offered["params"], query(*window(start, end)))
+        self.assertEqual(offered["points"], [[35.0, -100.0], [36.1235, -101.9876]])
 
     def test_a_long_trip_pushes_the_window_out_to_a_midnight(self):
         get = self.answer_the_window_asked_for()
@@ -196,18 +221,34 @@ class ForecastTests(CacheTestCase):
 
     def test_an_allowance_running_out_is_its_own_error_and_says_how_long_to_wait(self):
         cases = [
-            ("Minutely API request limit exceeded. Please try again in one minute.", 60, "in a minute"),
-            ("Hourly API request limit exceeded. Please try again in the next hour.", 3600, "in an hour"),
-            ("Daily API request limit exceeded. Please try again tomorrow.", 86400, "tomorrow"),
-            ("API request limit exceeded.", 60, "in a minute"),
+            ("Minutely API request limit exceeded. Please try again in one minute.", "minutely", 60, "in a minute"),
+            ("Hourly API request limit exceeded. Please try again in the next hour.", "hourly", 3600, "in an hour"),
+            ("Daily API request limit exceeded. Please try again tomorrow.", "daily", None, "tomorrow"),
+            ("API request limit exceeded.", "minutely", 60, "in a minute"),
         ]
-        for reason, seconds, when in cases:
+        for reason, allowance, seconds, when in cases:
             with self.subTest(reason=reason):
                 self.answer({"error": True, "reason": reason}, 429)
                 with self.assertRaises(WeatherBusy) as caught:
                     forecast([(35.0, -100.0)], at(0), at(48))
-                self.assertEqual(caught.exception.retry_after, seconds)
+                self.assertEqual(caught.exception.allowance, allowance)
+                self.assertEqual(caught.exception.retry_after, seconds or trips.weather.wait(allowance))
                 self.assertIn(when, str(caught.exception))
+
+    def test_the_days_allowance_comes_back_at_midnight_utc(self):
+        cases = [
+            (datetime(2026, 11, 10, 20, 0, tzinfo=timezone.utc), 4 * 3600),
+            (datetime(2026, 11, 10, 23, 58, 59, 500000, tzinfo=timezone.utc), 61),
+            # Never less than a minute: a retry on the stroke of midnight would be early.
+            (datetime(2026, 11, 10, 23, 59, 30, tzinfo=timezone.utc), 60),
+            (datetime(2026, 11, 10, 0, 0, tzinfo=timezone.utc), 60),
+        ]
+        for clock, seconds in cases:
+            with self.subTest(clock=clock.isoformat()), mock.patch("trips.weather.datetime") as fixed:
+                fixed.now.return_value = clock
+                spent = busy("Daily API request limit exceeded. Please try again tomorrow.")
+                self.assertEqual((spent.allowance, spent.retry_after), ("daily", seconds))
+                self.assertIn("try again tomorrow", str(spent))
 
     def test_failures(self):
         cases = [
@@ -228,3 +269,51 @@ class ForecastTests(CacheTestCase):
 
     def test_the_chunk_size_is_what_open_meteo_handles_comfortably(self):
         self.assertEqual(POINTS_PER_REQUEST, 100)
+
+
+class SuppliedTests(CacheTestCase):
+    """Series a browser fetched when asked to: Open-Meteo's hourly members, read as a fetch of our own would be."""
+
+    def series(self, count=2):
+        body = body_for(count)
+        return [item["hourly"] for item in (body if isinstance(body, list) else [body])]
+
+    def test_the_browsers_series_give_the_hourlies_fetching_them_here_would(self):
+        series = self.series()
+        mock.patch.object(trips.weather._session, "get", return_value=FakeResponse(body_for(2))).start()
+        self.addCleanup(mock.patch.stopall)
+        with mock.patch.object(cache, "set", wraps=cache.set) as set_:
+            hourlies = supplied(series, at(0), at(48))
+        self.assertEqual(hourlies, forecast([(35.0, -100.0), (36.0, -101.0)], at(0), at(48)))
+        self.assertEqual(hourlies, [trips.weather._hourly(data) for data in series])
+        self.assertAlmostEqual(hourlies[0].rain[10], 0.15)
+        # What the browser sent is its own; the next plan fetches for itself.
+        set_.assert_not_called()
+
+    def test_hours_past_the_models_reach_are_cut_off_as_they_are_from_a_fetch(self):
+        (series,) = self.series(1)
+        for name in ("wind_speed_10m", "rain", "showers", "snowfall"):
+            series[name][-5:] = [None] * 5
+        (hourly,) = supplied([series], at(0), at(43, 59))
+        self.assertEqual(len(hourly.times), 45)
+        self.assertEqual(hourly.times[-1], T0 + 44 * 3600)
+        with self.assertRaises(BadForecast) as caught:
+            supplied([series], at(0), at(44))
+        self.assertIn("does not cover the whole trip", str(caught.exception))
+
+    def test_series_that_cannot_be_read_are_refused_with_the_reason(self):
+        (series,) = self.series(1)
+        cases = [
+            ({**series, "rain": series["rain"][:5] + [None] + series["rain"][6:]}, at(0), at(48), "has no value for part of this trip"),
+            ({**series, "rain": series["rain"][:-1]}, at(0), at(48), "is not in the shape Open-Meteo sends"),
+            ({k: v for k, v in series.items() if k != "showers"}, at(0), at(48), "is not in the shape Open-Meteo sends"),
+            ({**series, "time": []}, at(0), at(48), "is not in the shape Open-Meteo sends"),
+            # Fifty hours from T0 run to 49:00; rain at 49:00 would be read from the stamp after it.
+            (series, at(0), at(49), "does not cover the whole trip"),
+            (series, at(-1), at(40), "does not cover the whole trip"),
+        ]
+        for data, start, end, message in cases:
+            with self.subTest(message=message, start=start.isoformat()):
+                with self.assertRaises(BadForecast) as caught:
+                    supplied([data], start, end)
+                self.assertIn(message, str(caught.exception))
