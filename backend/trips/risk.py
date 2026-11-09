@@ -9,7 +9,9 @@ The weather risk rules from the brief, applied to one place at one time.
 The table is read with each band owning its lower bound, so 0.25 in/h of
 rain is High and 35 mph is High. The top band is the exception the brief
 spells out: wind is No Travel from 55 mph, while rain and snow have to
-exceed 1.00 and 3.0.
+exceed 1.00 and 3.0. Values are judged as a dispatcher reads them, wind to
+the mile an hour and rain and snow to the hundredth of an inch, so a figure
+shown on a band's edge is in that band and never the one below.
 
 Load rules, which only concern wind:
 
@@ -18,6 +20,7 @@ Load rules, which only concern wind:
     35-44 mph and over 40,000 lb    Severe
 """
 
+import math
 from bisect import bisect_right
 from dataclasses import dataclass
 
@@ -57,8 +60,14 @@ class Assessment:
     load_rule: str | None  # set when the load pushed the wind level up
 
 
+def read(wind_mph, rain_inches_per_hour, snow_inches_per_hour):
+    """The values as they are shown: wind to the mile an hour (a half rounds up), rain and snow to a hundredth."""
+    return float(math.floor(wind_mph + 0.5)), round(rain_inches_per_hour, 2), round(snow_inches_per_hour, 2)
+
+
 def assess(wind_mph, rain_inches_per_hour, snow_inches_per_hour, load_lb):
     """Classify the conditions for a truck carrying load_lb; the worst factor decides."""
+    wind_mph, rain_inches_per_hour, snow_inches_per_hour = read(wind_mph, rain_inches_per_hour, snow_inches_per_hour)
     wind = wind_level(wind_mph)
     load_rule = None
     if wind == SEVERE and load_lb > HEAVY_LOAD_LB:

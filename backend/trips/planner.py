@@ -152,7 +152,7 @@ def judge(route, stops, hourlies, departure, load_lb):
     for stop, hourly in zip(stops, hourlies):
         seconds = round(stop.seconds)
         eta = departure + timedelta(seconds=seconds)
-        wind, rain, snow = hourly.at(eta)
+        wind, rain, snow = risk.read(*hourly.at(eta))
         found = risk.assess(wind, rain, snow, load_lb)
         miles_by_level[found.level] += stop.covers_miles
         weighted += found.level * stop.covers_miles
@@ -163,9 +163,9 @@ def judge(route, stops, hourlies, departure, load_lb):
             "eta": eta.isoformat(),
             "seconds": seconds,
             "covers_miles": round(stop.covers_miles, 1),
-            "wind_mph": round(wind, 1),
-            "rain_in": round(rain, 2),
-            "snow_in": round(snow, 2),
+            "wind_mph": wind,
+            "rain_in": rain,
+            "snow_in": snow,
             "level": found.level,
             "wind_level": found.wind,
             "rain_level": found.rain,

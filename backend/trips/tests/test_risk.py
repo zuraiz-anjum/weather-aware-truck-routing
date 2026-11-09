@@ -1,12 +1,21 @@
 from django.test import SimpleTestCase
 
-from trips.risk import HIGH, LOW, MODERATE, NO_TRAVEL, SEVERE, assess, rain_level, snow_level, wind_level
+from trips.risk import HIGH, LOW, MODERATE, NO_TRAVEL, SEVERE, assess, rain_level, read, snow_level, wind_level
 
 
 class ThresholdTests(SimpleTestCase):
+    def test_values_are_judged_as_they_are_shown(self):
+        # 24.6 mph reads as 25 and 0.096 in/h as 0.10, so both are Moderate; a half mile an hour rounds up.
+        self.assertEqual(read(24.6, 0.096, 2.996), (25.0, 0.10, 3.0))
+        self.assertEqual(read(24.5, 0.094, 0), (25.0, 0.09, 0.0))
+        edge = assess(24.6, 0.096, 2.996, 0)
+        self.assertEqual((edge.wind, edge.rain, edge.snow), (MODERATE, MODERATE, SEVERE))
+        below = assess(24.4, 0.094, 3.004, 0)
+        self.assertEqual((below.wind, below.rain, below.snow), (LOW, LOW, SEVERE))
+
     def test_wind_bands_own_their_lower_bound(self):
-        cases = [(0, LOW), (24.9, LOW), (25, MODERATE), (34.9, MODERATE), (35, HIGH), (44.9, HIGH),
-                 (45, SEVERE), (54.9, SEVERE), (55, NO_TRAVEL), (90, NO_TRAVEL)]
+        cases = [(0, LOW), (24.4, LOW), (25, MODERATE), (34.4, MODERATE), (35, HIGH), (44.4, HIGH),
+                 (45, SEVERE), (54.4, SEVERE), (55, NO_TRAVEL), (90, NO_TRAVEL)]
         for mph, level in cases:
             with self.subTest(mph=mph):
                 self.assertEqual(wind_level(mph), level)
