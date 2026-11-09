@@ -88,8 +88,8 @@ class PlanViewTests(CacheTestCase):
             ({"load_lb": None}, "load_lb: This field may not be null"),
             ({"load_lb": 250000}, "load_lb: Ensure this value is less than or equal to 200000"),
             ({"interval_miles": 15}, 'interval_miles: "15" is not a valid choice'),
-            ({"departure": soon(-3).isoformat()}, "departure: the departure is in the past"),
-            ({"departure": (soon() + timedelta(days=13)).isoformat()}, "departure: the departure is too far ahead; the latest is "),
+            ({"departure": soon(-3).isoformat()}, "the departure is in the past"),
+            ({"departure": (soon() + timedelta(days=13)).isoformat()}, "the departure is too far ahead; the latest is "),
             ({"origin": {"lat": 35.0}}, "origin: give both lat and lon, or neither"),
             ({"origin": {"lat": 48.85, "lon": 2.35}}, "origin: coordinates are outside North America"),
             ({"origin": {"text": "  "}}, "origin: give a place name or coordinates"),
@@ -100,6 +100,7 @@ class PlanViewTests(CacheTestCase):
                 response = self.post(**changes)
                 self.assertEqual(response.status_code, 400)
                 self.assertIn(message, response.json()["detail"])
+                self.assertNotIn("departure: the departure", response.json()["detail"])
                 self.assertIn("errors", response.json())
 
     def test_missing_fields(self):

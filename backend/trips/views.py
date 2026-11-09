@@ -88,4 +88,8 @@ def flatten(errors, where=""):
             yield from flatten(item, where)
     else:
         message = str(errors).rstrip(".")  # the lines are joined with semicolons
-        yield f"{where}: {message}" if where else message
+        # A message that names its own field, as the departure's do, needs no prefix.
+        if not where or message.startswith("the %s " % where.rsplit(".", 1)[-1]):
+            yield message
+        else:
+            yield f"{where}: {message}"
